@@ -1,0 +1,55 @@
+[package]
+name = "copyfile"
+version = "0.1.0"
+edition = "2021"
+authors = ["Leandro"]
+description = "Ultra-fast parallel file backup and transfer tool with TeraCopy-inspired GUI and xxHash3 verification"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# GUI
+eframe = { version = "0.31", default-features = false, features = ["default", "glow", "wgpu"] }
+egui_extras = { version = "0.31", features = ["all_loaders"] }
+rfd = "0.15"
+
+# High-Performance Hashing
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+# File system & Metadata
+filetime = "0.2"
+
+# Concurrency & Async
+crossbeam-channel = "0.5"
+rayon = "1.10"
+tokio = { version = "1.43", features = ["rt-multi-thread", "sync", "time", "macros", "fs", "io-util"] }
+
+# Logging & Errors
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+thiserror = "2.0"
+anyhow = "1.0"
+
+# CLI & Utilities
+clap = { version = "4.5", features = ["derive"] }
+chrono = "0.4"
+humansize = "2.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_System_Time",
+] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.release-small]
+inherits = "release"
+opt-level = "z"
