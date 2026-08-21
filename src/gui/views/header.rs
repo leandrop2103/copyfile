@@ -5,7 +5,7 @@ use crate::core::profiles::{
     get_current_user_presets, get_presets_for_user_path, list_all_windows_users,
 };
 use crate::core::types::{CopyConfig, OverwritePolicy};
-use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING};
+use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
 use eframe::egui::{self, Color32, CornerRadius, ProgressBar, RichText, Stroke, Ui, Vec2};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -192,14 +192,17 @@ pub fn render_header(
             } else {
                 ui.add_space(2.0);
                 let mut remove_idx = None;
-                let max_preview = 4;
-                let has_more = sources.len() > max_preview;
 
-                ui.horizontal_wrapped(|ui| {
-                    for (idx, src) in sources.iter().enumerate().take(max_preview) {
+                ui.horizontal(|ui| {
+                    // Show at most the first 3 items as badges
+                    for (idx, src) in sources.iter().enumerate().take(3) {
                         let is_dir = src.is_dir();
                         let icon = if is_dir { "📁" } else { "📄" };
-                        let display_path = src.to_string_lossy().to_string();
+                        let full_path = src.to_string_lossy().to_string();
+                        let short_name = src
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&full_path);
 
                         egui::Frame::NONE
                             .fill(Color32::from_rgb(30, 41, 59))
@@ -209,11 +212,13 @@ pub fn render_header(
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label(
-                                        RichText::new(format!("{icon} {display_path}"))
+                                        RichText::new(format!("{icon} {short_name}"))
                                             .size(13.0)
                                             .strong()
                                             .color(Color32::from_rgb(226, 232, 240)),
-                                    );
+                                    )
+                                    .on_hover_text(&full_path);
+
                                     if !is_running {
                                         let remove_btn = ui.add(
                                             egui::Button::new(
@@ -232,27 +237,74 @@ pub fn render_header(
                             });
                     }
 
-                    if has_more {
-                        let extra_count = sources.len() - max_preview;
-                        egui::Frame::NONE
-                            .fill(Color32::from_rgb(37, 99, 235))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(96, 165, 250)))
-                            .corner_radius(CornerRadius::same(5))
-                            .inner_margin(egui::Margin::symmetric(8, 4))
-                            .show(ui, |ui| {
-                                let more_btn = ui.add(
-                                    egui::Button::new(
-                                        RichText::new(format!("📋 +{extra_count} outras origens... (Ver todas)"))
-                                            .size(13.0)
-                                            .strong()
-                                            .color(Color32::WHITE),
-                                    )
-                                    .frame(false),
+                    // If more than 3 items, show Dropdown Menu with the rest
+                    if sources.len() > 3 {
+                        let remaining_count = sources.len() - 3;
+                        let menu_label = format!("📁 +{remaining_count} restantes ▼");
+
+                        ui.menu_button(
+                            RichText::new(menu_label)
+                                .size(13.0)
+                                .strong()
+                                .color(Color32::WHITE),
+                            |ui| {
+                                ui.set_min_width(320.0);
+                                ui.label(
+                                    RichText::new(format!("Itens adicionais ({remaining_count}):"))
+                                        .size(12.5)
+                                        .color(COLOR_MUTED),
                                 );
-                                if more_btn.clicked() {
-                                    open_sources_manager_requested = true;
+                                ui.separator();
+
+                                for (idx, src) in sources.iter().enumerate().skip(3) {
+                                    let is_dir = src.is_dir();
+                                    let icon = if is_dir { "📁" } else { "📄" };
+                                    let path_str = src.to_string_lossy().to_string();
+
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(format!("{icon} {path_str}"))
+                                                .size(13.0)
+                                                .color(Color32::from_rgb(226, 232, 240)),
+                                        );
+
+                                        if !is_running {
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    if ui
+                                                        .button(
+                                                            RichText::new("✖")
+                                                                .color(COLOR_ERROR)
+                                                                .size(11.0),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        remove_idx = Some(idx);
+                                                        ui.close_menu();
+                                                    }
+                                                },
+                                            );
+                                        }
+                                    });
                                 }
-                            });
+
+                                ui.add_space(6.0);
+                                ui.separator();
+                                if ui
+                                    .button(
+                                        RichText::new("📋 Abrir Gerenciador Completo...")
+                                            .color(COLOR_ACCENT)
+                                            .strong()
+                                            .size(13.0),
+                                    )
+                                    .clicked()
+                                {
+                                    open_sources_manager_requested = true;
+                                    ui.close_menu();
+                                }
+                            },
+                        );
                     }
                 });
 
