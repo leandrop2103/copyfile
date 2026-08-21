@@ -183,43 +183,48 @@ pub fn render_header(
             } else {
                 ui.add_space(2.0);
                 let mut remove_idx = None;
-                ui.horizontal_wrapped(|ui| {
-                    for (idx, src) in sources.iter().enumerate() {
-                        let is_dir = src.is_dir();
-                        let icon = if is_dir { "📁" } else { "📄" };
-                        let display_path = src.to_string_lossy().to_string();
+                egui::ScrollArea::vertical()
+                    .max_height(85.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for (idx, src) in sources.iter().enumerate() {
+                                let is_dir = src.is_dir();
+                                let icon = if is_dir { "📁" } else { "📄" };
+                                let display_path = src.to_string_lossy().to_string();
 
-                        egui::Frame::NONE
-                            .fill(Color32::from_rgb(30, 41, 59))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
-                            .corner_radius(CornerRadius::same(5))
-                            .inner_margin(egui::Margin::symmetric(8, 4))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        RichText::new(format!("{icon} {display_path}"))
-                                            .size(13.0)
-                                            .strong()
-                                            .color(Color32::from_rgb(226, 232, 240)),
-                                    );
-                                    if !is_running {
-                                        let remove_btn = ui.add(
-                                            egui::Button::new(
-                                                RichText::new("✖")
-                                                    .color(COLOR_ERROR)
-                                                    .size(11.0)
-                                                    .strong(),
-                                            )
-                                            .frame(false),
-                                        );
-                                        if remove_btn.clicked() {
-                                            remove_idx = Some(idx);
-                                        }
-                                    }
-                                });
-                            });
-                    }
-                });
+                                egui::Frame::NONE
+                                    .fill(Color32::from_rgb(30, 41, 59))
+                                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
+                                    .corner_radius(CornerRadius::same(5))
+                                    .inner_margin(egui::Margin::symmetric(8, 4))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new(format!("{icon} {display_path}"))
+                                                    .size(13.0)
+                                                    .strong()
+                                                    .color(Color32::from_rgb(226, 232, 240)),
+                                            );
+                                            if !is_running {
+                                                let remove_btn = ui.add(
+                                                    egui::Button::new(
+                                                        RichText::new("✖")
+                                                            .color(COLOR_ERROR)
+                                                            .size(11.0)
+                                                            .strong(),
+                                                    )
+                                                    .frame(false),
+                                                );
+                                                if remove_btn.clicked() {
+                                                    remove_idx = Some(idx);
+                                                }
+                                            }
+                                        });
+                                    });
+                            }
+                        });
+                    });
 
                 if let Some(idx) = remove_idx {
                     sources.remove(idx);
@@ -233,11 +238,34 @@ pub fn render_header(
 
             ui.horizontal(|ui| {
                 ui.label(RichText::new("🎯 Destino:").strong().size(16.0));
+
+                if !is_running {
+                    let pick_dst_btn = egui::Button::new(
+                        RichText::new("📂 Escolher Destino")
+                            .strong()
+                            .size(14.0)
+                            .color(Color32::WHITE),
+                    )
+                    .fill(Color32::from_rgb(16, 185, 129))
+                    .min_size(Vec2::new(150.0, 32.0));
+                    if ui.add(pick_dst_btn).clicked() {
+                        if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                            *destination = Some(folder);
+                        }
+                    }
+                }
+
                 if let Some(dst) = destination.as_ref() {
                     let display_dst = dst.to_string_lossy().to_string();
                     let space_str = disk_space_info.map_or_else(
                         String::new,
-                        |info| format!("  (Livre: {} de {})", format_bytes(info.available_bytes), format_bytes(info.total_bytes)),
+                        |info| {
+                            format!(
+                                "  (Livre: {} de {})",
+                                format_bytes(info.available_bytes),
+                                format_bytes(info.total_bytes)
+                            )
+                        },
                     );
 
                     egui::Frame::NONE
@@ -253,7 +281,19 @@ pub fn render_header(
                                         .size(13.5)
                                         .color(Color32::from_rgb(52, 211, 153)),
                                 );
-                                if !is_running && ui.add(egui::Button::new(RichText::new("✖").color(COLOR_ERROR).size(11.0).strong()).frame(false)).clicked() {
+                                if !is_running
+                                    && ui
+                                        .add(
+                                            egui::Button::new(
+                                                RichText::new("✖")
+                                                    .color(COLOR_ERROR)
+                                                    .size(11.0)
+                                                    .strong(),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .clicked()
+                                {
                                     *destination = None;
                                 }
                             });
@@ -266,24 +306,6 @@ pub fn render_header(
                             .color(Color32::from_rgb(148, 163, 184)),
                     );
                 }
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if !is_running {
-                        let pick_dst_btn = egui::Button::new(
-                            RichText::new("📂 Escolher Destino")
-                                .strong()
-                                .size(14.0)
-                                .color(Color32::WHITE),
-                        )
-                        .fill(Color32::from_rgb(16, 185, 129))
-                        .min_size(Vec2::new(160.0, 32.0));
-                        if ui.add(pick_dst_btn).clicked() {
-                            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                                *destination = Some(folder);
-                            }
-                        }
-                    }
-                });
             });
 
             // Pre-Flight Disk Space Warning Alert
