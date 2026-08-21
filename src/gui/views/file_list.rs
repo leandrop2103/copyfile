@@ -157,9 +157,9 @@ pub fn render_file_list(
                 .striped(true)
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .column(Column::exact(110.0)) // Status
-                .column(Column::initial(340.0).at_least(180.0)) // Origem
-                .column(Column::initial(340.0).at_least(180.0)) // Destino
+                .column(Column::exact(45.0)) // Status Icon Only
+                .column(Column::initial(360.0).at_least(180.0)) // Origem
+                .column(Column::initial(360.0).at_least(180.0)) // Destino
                 .column(Column::exact(110.0)) // xxHash
                 .column(Column::exact(95.0)) // Tamanho
                 .column(Column::exact(75.0)) // Atributos
@@ -174,7 +174,7 @@ pub fn render_file_list(
             table
                 .header(28.0, |mut header| {
                     header.col(|ui| {
-                        ui.strong(RichText::new("Status").size(14.0));
+                        ui.strong(RichText::new("St.").size(14.0));
                     });
                     header.col(|ui| {
                         ui.strong(RichText::new("Origem").size(14.0));
@@ -205,21 +205,24 @@ pub fn render_file_list(
                         // Determine text color and icon based on status
                         let (status_text, status_color, status_icon) = match &entry.status {
                             FileStatus::Pending => ("Pendente", COLOR_MUTED, "⏳"),
-                            FileStatus::Copying { .. } => ("Copiando", COLOR_ACCENT, "🔄"),
-                            FileStatus::Verifying => ("Verificando", COLOR_ACCENT, "🔍"),
-                            FileStatus::Success { .. } => ("Concluído", COLOR_SUCCESS, "✔"),
-                            FileStatus::Skipped { .. } => ("Ignorado", COLOR_WARNING, "⚠"),
-                            FileStatus::Error { .. } => ("Erro", COLOR_ERROR, "✖"),
+                            FileStatus::Copying { .. } => ("Copiando...", COLOR_ACCENT, "⚡"),
+                            FileStatus::Verifying => ("Verificando...", COLOR_ACCENT, "🔍"),
+                            FileStatus::Success { .. } => {
+                                ("Concluído com sucesso", COLOR_SUCCESS, "✔")
+                            }
+                            FileStatus::Skipped { .. } => ("Ignorado", COLOR_WARNING, "⏭"),
+                            FileStatus::Error { .. } => ("Erro na cópia", COLOR_ERROR, "❌"),
                         };
 
-                        // Column 1: Status badge
+                        // Column 1: Status Icon only
                         row.col(|ui| {
                             ui.label(
-                                RichText::new(format!("{status_icon} {status_text}"))
+                                RichText::new(status_icon)
                                     .color(status_color)
-                                    .size(13.0)
+                                    .size(15.0)
                                     .strong(),
-                            );
+                            )
+                            .on_hover_text(status_text);
                         });
 
                         // Column 2: Source Path

@@ -7,8 +7,8 @@ use crate::core::types::{
 };
 use crate::gui::theme::configure_theme;
 use crate::gui::views::{
-    render_file_list, render_header, render_logs, render_options, render_stats, ListFilter,
-    LogFilter,
+    render_completion_modal, render_file_list, render_header, render_logs, render_options,
+    render_stats, ListFilter, LogFilter,
 };
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, CentralPanel, TopBottomPanel};
@@ -72,9 +72,10 @@ pub struct CopyFileApp {
     search_query: String,
     auto_scroll: bool,
 
-    // Windows Taskbar Progress
+    // Windows Taskbar Progress & Modals
     taskbar: crate::core::taskbar::TaskbarProgress,
     hwnd: isize,
+    show_completion_modal: bool,
 }
 
 impl Default for CopyFileApp {
@@ -114,6 +115,7 @@ impl Default for CopyFileApp {
             auto_scroll: true,
             taskbar: crate::core::taskbar::TaskbarProgress::new(),
             hwnd: 0,
+            show_completion_modal: false,
         }
     }
 }
@@ -141,6 +143,7 @@ impl CopyFileApp {
 
         self.is_running = true;
         self.is_paused = false;
+        self.show_completion_modal = false;
         self.controller = CopyController::new();
         self.start_time = Some(Instant::now());
         self.last_speed_sample = Instant::now();
@@ -325,6 +328,7 @@ impl CopyFileApp {
                     self.current_file_copied = 0;
                     self.current_file_total = 0;
                     self.processed_bytes = self.total_bytes;
+                    self.show_completion_modal = true;
                     self.logs.push(LogEntry::new(
                         LogLevel::Success,
                         None,
@@ -450,6 +454,17 @@ impl CopyFileApp {
                 }
             }
         }
+    }
+
+    /// Calculates the number of unique folders involved in the transfer.
+    fn calculate_total_folders(&self) -> usize {
+        let mut set = std::collections::HashSet::new();
+        for entry in &self.entries {
+            if let Some(parent) = entry.source_path.parent() {
+                set.insert(parent.to_path_buf());
+            }
+        }
+        set.len().max(self.sources.len())
     }
 }
 
@@ -595,5 +610,32 @@ impl eframe::App for CopyFileApp {
                 );
             }
         });
+
+        // --- Completion Summary Modal Dialog ---
+        if self.show_completion_modal {
+            let total_folders = self.calculate_total_folders();
+            let mode_name = self.config.transfer_mode.label();
+            let mut switch_to_logs = false;
+
+            render_completion_modal(
+                ctx,
+                &mut self.show_completion_modal,
+                mode_name,
+                total_folders,
+                self.copied_files_count,
+                self.skipped_files_count,
+                self.error_files_count,
+                self.entries.len(),
+                self.total_bytes,
+                self.elapsed_time,
+                self.average_speed_bps,
+                self.destination.as_ref(),
+                || switch_to_logs = true,
+            );
+
+            if switch_to_logs {
+                self.active_tab = AppTab::Logs;
+            }
+        }
     }
 }
