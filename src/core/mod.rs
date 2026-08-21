@@ -7,6 +7,7 @@ pub mod metadata;
 pub mod profiles;
 pub mod scanner;
 pub mod shell;
+pub mod taskbar;
 pub mod types;
 
 pub use copier::{run_copy_batch, CopyController};
@@ -18,4 +19,5 @@ pub use profiles::{
 };
 pub use scanner::scan_sources;
 pub use shell::{is_context_menu_registered, register_context_menu, unregister_context_menu};
+pub use taskbar::{TaskbarProgress, TaskbarState};
 pub use types::*;

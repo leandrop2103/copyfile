@@ -179,3 +179,46 @@ fn test_user_presets_detection() {
     let presets = copyfile::core::get_current_user_presets();
     assert!(!presets.is_empty());
 }
+
+#[test]
+fn test_safe_move_mode() {
+    let (src, dst) = setup_temp_dir("safe_move");
+    let file_src = src.join("arquivo_para_mover.txt");
+    fs::write(&file_src, "Conteúdo que será movido com segurança").unwrap();
+
+    let (entries, _) = scan_sources(std::slice::from_ref(&src), &dst);
+    assert_eq!(entries.len(), 1);
+
+    let (tx, rx) = unbounded();
+    let controller = CopyController::new();
+    let config = CopyConfig {
+        transfer_mode: copyfile::core::TransferMode::Move,
+        verify_checksum: true,
+        ignore_errors: false,
+        preserve_metadata: true,
+        overwrite_policy: OverwritePolicy::Always,
+        num_threads: 1,
+        buffer_size_kb: 128,
+        ..Default::default()
+    };
+
+    run_copy_batch(entries, config, controller, tx);
+
+    let mut completed = 0;
+    while let Ok(event) = rx.recv() {
+        if let CopyEvent::FileCompleted { .. } = event {
+            completed += 1;
+        }
+    }
+
+    assert_eq!(completed, 1);
+
+    // Destination must exist with correct content
+    let file_dst = dst.join("src").join("arquivo_para_mover.txt");
+    assert!(file_dst.exists());
+    let content = fs::read_to_string(&file_dst).unwrap();
+    assert_eq!(content, "Conteúdo que será movido com segurança");
+
+    // Source must have been safely deleted
+    assert!(!file_src.exists());
+}

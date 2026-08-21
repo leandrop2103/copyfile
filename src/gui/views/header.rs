@@ -320,18 +320,28 @@ pub fn render_header(
             ui.horizontal(|ui| {
                 if !is_running {
                     let can_start = !sources.is_empty() && destination.is_some();
+                    let start_label = if config.transfer_mode == crate::core::types::TransferMode::Move {
+                        "▶ MOVER (RECORTAR)"
+                    } else {
+                        "▶ INICIAR CÓPIA"
+                    };
+                    let start_color = if config.transfer_mode == crate::core::types::TransferMode::Move {
+                        Color32::from_rgb(217, 119, 6) // Amber/Orange for move
+                    } else {
+                        COLOR_SUCCESS
+                    };
                     let start_btn = egui::Button::new(
-                        RichText::new("▶ INICIAR CÓPIA")
+                        RichText::new(start_label)
                             .strong()
                             .size(16.0)
                             .color(Color32::WHITE),
                     )
                     .fill(if can_start {
-                        COLOR_SUCCESS
+                        start_color
                     } else {
                         Color32::from_rgb(51, 65, 85)
                     })
-                    .min_size(Vec2::new(170.0, 36.0));
+                    .min_size(Vec2::new(180.0, 36.0));
 
                     if ui.add_enabled(can_start, start_btn).clicked() {
                         on_start();
@@ -362,7 +372,24 @@ pub fn render_header(
                     }
                 }
 
-                ui.add_space(16.0);
+                ui.add_space(12.0);
+
+                // Transfer Mode selector
+                if !is_running {
+                    egui::ComboBox::from_id_salt("header_mode_combo")
+                        .selected_text(RichText::new(config.transfer_mode.label()).size(13.5).strong())
+                        .show_ui(ui, |ui| {
+                            for mode in crate::core::types::TransferMode::all() {
+                                ui.selectable_value(
+                                    &mut config.transfer_mode,
+                                    mode,
+                                    RichText::new(mode.label()).size(13.5),
+                                );
+                            }
+                        });
+                }
+
+                ui.add_space(8.0);
 
                 // Quick options
                 ui.checkbox(&mut config.verify_checksum, RichText::new("Verificar xxHash3").size(14.0));

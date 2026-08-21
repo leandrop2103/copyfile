@@ -163,9 +163,38 @@ impl OverwritePolicy {
     }
 }
 
+/// Transfer mode: either standard copy or safe move (delete source only after xxHash3 verification).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TransferMode {
+    /// Copies files and preserves the originals in source directory.
+    #[default]
+    Copy,
+    /// Moves files: safely deletes the source file only after 100% verified destination copy.
+    Move,
+}
+
+impl TransferMode {
+    /// List all available transfer modes.
+    #[must_use]
+    pub const fn all() -> [Self; 2] {
+        [Self::Copy, Self::Move]
+    }
+
+    /// User-facing label in Portuguese.
+    #[must_use]
+    pub const fn label(&self) -> &'static str {
+        match self {
+            Self::Copy => "Copiar (Manter Origens)",
+            Self::Move => "Mover / Recortar Seguro",
+        }
+    }
+}
+
 /// Global configuration options for the copy engine.
 #[derive(Debug, Clone)]
 pub struct CopyConfig {
+    /// Transfer mode (Copy or Safe Move).
+    pub transfer_mode: TransferMode,
     /// Number of worker threads for parallel file operations.
     pub num_threads: usize,
     /// Streaming buffer size in KiB per thread (e.g. 1024 = 1MiB).
@@ -189,6 +218,7 @@ impl Default for CopyConfig {
         let logical_cpus =
             std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
         Self {
+            transfer_mode: TransferMode::Copy,
             num_threads: (logical_cpus * 2).clamp(2, 16),
             buffer_size_kb: 1024, // 1 MB per buffer
             verify_checksum: true,

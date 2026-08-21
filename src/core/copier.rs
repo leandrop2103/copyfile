@@ -353,16 +353,38 @@ fn process_single_file(
         }
     }
 
+    // Safe Move: Delete source file only after 100% successful copy and verification
+    if config.transfer_mode == crate::core::types::TransferMode::Move {
+        if let Err(e) = fs::remove_file(src) {
+            let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
+                LogLevel::Warn,
+                Some(src.clone()),
+                format!("Aviso: Falha ao remover origem após mover com sucesso: {e}"),
+            )));
+        } else {
+            let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
+                LogLevel::Info,
+                Some(src.clone()),
+                "Origem excluída com sucesso (Mover Seguro)",
+            )));
+        }
+    }
+
     let duration_ms = start_file_time.elapsed().as_millis() as u64;
     let _ = event_tx.send(CopyEvent::FileCompleted {
         id: entry.id,
         hash: src_hash.clone(),
         duration_ms,
     });
+    let action_name = if config.transfer_mode == crate::core::types::TransferMode::Move {
+        "Movido"
+    } else {
+        "Copiado"
+    };
     let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
         LogLevel::Success,
         Some(src.clone()),
-        format!("Copiado com sucesso! [{src_hash}] ({duration_ms}ms)"),
+        format!("{action_name} com sucesso! [{src_hash}] ({duration_ms}ms)"),
     )));
 }
 

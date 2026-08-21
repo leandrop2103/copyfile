@@ -71,6 +71,10 @@ pub struct CopyFileApp {
     log_filter: LogFilter,
     search_query: String,
     auto_scroll: bool,
+
+    // Windows Taskbar Progress
+    taskbar: crate::core::taskbar::TaskbarProgress,
+    hwnd: isize,
 }
 
 impl Default for CopyFileApp {
@@ -108,6 +112,8 @@ impl Default for CopyFileApp {
             log_filter: LogFilter::All,
             search_query: String::new(),
             auto_scroll: true,
+            taskbar: crate::core::taskbar::TaskbarProgress::new(),
+            hwnd: 0,
         }
     }
 }
@@ -454,6 +460,41 @@ impl eframe::App for CopyFileApp {
 
         if self.is_running {
             ctx.request_repaint_after(Duration::from_millis(16)); // 60 FPS update during copy
+        }
+
+        // Update Windows Taskbar Progress
+        #[cfg(windows)]
+        {
+            if self.hwnd == 0 {
+                use std::ffi::OsStr;
+                use std::os::windows::ffi::OsStrExt;
+                use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
+                let title: Vec<u16> = OsStr::new("CopyFile - Cópia e Backup de Alta Performance")
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect();
+                let h = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+                if !h.is_null() {
+                    self.hwnd = h as isize;
+                }
+            }
+
+            let taskbar_state = if !self.is_running {
+                crate::core::taskbar::TaskbarState::NoProgress
+            } else if self.is_paused {
+                crate::core::taskbar::TaskbarState::Paused
+            } else if self.error_files_count > 0 {
+                crate::core::taskbar::TaskbarState::Error
+            } else {
+                crate::core::taskbar::TaskbarState::Normal
+            };
+
+            self.taskbar.update(
+                self.hwnd,
+                self.processed_bytes,
+                self.total_bytes,
+                taskbar_state,
+            );
         }
 
         // --- Top Header Panel ---
