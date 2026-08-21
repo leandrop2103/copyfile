@@ -2,7 +2,7 @@
 
 use crate::core::types::{CopyConfig, OverwritePolicy};
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING};
-use eframe::egui::{self, Color32, ProgressBar, RichText, Ui, Vec2};
+use eframe::egui::{self, Color32, CornerRadius, ProgressBar, RichText, Stroke, Ui, Vec2};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -56,8 +56,12 @@ pub fn render_header(
     current_file_name: &Option<String>,
     current_file_copied: u64,
     current_file_total: u64,
-    total_copied: u64,
+    processed_bytes: u64,
     total_bytes: u64,
+    copied_files: usize,
+    skipped_files: usize,
+    error_files: usize,
+    total_files: usize,
     current_speed_bps: f64,
     elapsed: Duration,
     eta: Option<Duration>,
@@ -70,37 +74,23 @@ pub fn render_header(
         .fill(Color32::from_rgb(24, 33, 47))
         .inner_margin(14.0)
         .show(ui, |ui| {
-            // --- Row 1: Source Selection Box ---
+            // --- Row 1: Source Header & Action Buttons ---
             ui.horizontal(|ui| {
-                ui.label(RichText::new("📁 Origem:").strong().size(16.0));
-                if sources.is_empty() {
+                ui.label(RichText::new("📁 Origens Selecionadas:").strong().size(16.0));
+                if !sources.is_empty() {
                     ui.label(
-                        RichText::new("Nenhum arquivo ou pasta selecionado (Arraste aqui ou use os botões ao lado)")
-                            .italics()
+                        RichText::new(format!("({} itens adicionados)", sources.len()))
                             .size(14.0)
-                            .color(Color32::from_rgb(148, 163, 184)),
-                    );
-                } else if sources.len() == 1 {
-                    ui.label(
-                        RichText::new(sources[0].to_string_lossy())
-                            .strong()
-                            .size(15.0)
-                            .color(Color32::WHITE),
-                    );
-                } else {
-                    ui.label(
-                        RichText::new(format!("{} itens selecionados para cópia", sources.len()))
-                            .strong()
-                            .size(15.0)
-                            .color(COLOR_ACCENT),
+                            .color(COLOR_ACCENT)
+                            .strong(),
                     );
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if !is_running {
                         if !sources.is_empty() {
-                            let clear_btn = egui::Button::new(RichText::new("🗑 Limpar").size(14.0))
-                                .min_size(Vec2::new(80.0, 32.0));
+                            let clear_btn = egui::Button::new(RichText::new("🗑 Limpar Tudo").size(14.0))
+                                .min_size(Vec2::new(100.0, 32.0));
                             if ui.add(clear_btn).clicked() {
                                 on_clear();
                             }
@@ -142,21 +132,90 @@ pub fn render_header(
                 });
             });
 
+            // --- Row 1.5: List of Selected Source Badges (Always Visible!) ---
+            if sources.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("Nenhuma pasta ou arquivo adicionado. Arraste pastas/arquivos para a janela ou clique nos botões acima.")
+                            .italics()
+                            .size(13.5)
+                            .color(Color32::from_rgb(148, 163, 184)),
+                    );
+                });
+            } else {
+                ui.add_space(2.0);
+                let mut remove_idx = None;
+                ui.horizontal_wrapped(|ui| {
+                    for (idx, src) in sources.iter().enumerate() {
+                        let is_dir = src.is_dir();
+                        let icon = if is_dir { "📁" } else { "📄" };
+                        let display_path = src.to_string_lossy().to_string();
+
+                        egui::Frame::NONE
+                            .fill(Color32::from_rgb(30, 41, 59))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
+                            .corner_radius(CornerRadius::same(5))
+                            .inner_margin(egui::Margin::symmetric(8, 4))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(format!("{icon} {display_path}"))
+                                            .size(13.0)
+                                            .strong()
+                                            .color(Color32::from_rgb(226, 232, 240)),
+                                    );
+                                    if !is_running {
+                                        let remove_btn = ui.add(
+                                            egui::Button::new(
+                                                RichText::new("✖")
+                                                    .color(COLOR_ERROR)
+                                                    .size(11.0)
+                                                    .strong(),
+                                            )
+                                            .frame(false),
+                                        );
+                                        if remove_btn.clicked() {
+                                            remove_idx = Some(idx);
+                                        }
+                                    }
+                                });
+                            });
+                    }
+                });
+
+                if let Some(idx) = remove_idx {
+                    sources.remove(idx);
+                }
+            }
+
             ui.add_space(6.0);
 
-            // --- Row 2: Destination Selection Box ---
+            // --- Row 2: Destination Header & Picker ---
             ui.horizontal(|ui| {
                 ui.label(RichText::new("🎯 Destino:").strong().size(16.0));
-                if let Some(dst) = destination {
-                    ui.label(
-                        RichText::new(dst.to_string_lossy())
-                            .strong()
-                            .size(15.0)
-                            .color(Color32::WHITE),
-                    );
+                if let Some(dst) = destination.as_ref() {
+                    let display_dst = dst.to_string_lossy().to_string();
+                    egui::Frame::NONE
+                        .fill(Color32::from_rgb(20, 50, 40))
+                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(16, 185, 129)))
+                        .corner_radius(CornerRadius::same(5))
+                        .inner_margin(egui::Margin::symmetric(8, 4))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(format!("📂 {display_dst}"))
+                                        .strong()
+                                        .size(13.5)
+                                        .color(Color32::from_rgb(52, 211, 153)),
+                                );
+                                if !is_running && ui.add(egui::Button::new(RichText::new("✖").color(COLOR_ERROR).size(11.0).strong()).frame(false)).clicked() {
+                                    *destination = None;
+                                }
+                            });
+                        });
                 } else {
                     ui.label(
-                        RichText::new("Selecione a pasta de destino para salvar o backup...")
+                        RichText::new("Selecione a pasta de destino para o backup...")
                             .italics()
                             .size(14.0)
                             .color(Color32::from_rgb(148, 163, 184)),
@@ -234,7 +293,7 @@ pub fn render_header(
 
                 ui.add_space(16.0);
 
-                // Quick options with clear checkboxes
+                // Quick options
                 ui.checkbox(&mut config.verify_checksum, RichText::new("Verificar xxHash3").size(14.0));
                 ui.checkbox(&mut config.ignore_errors, RichText::new("Ignorar erros").size(14.0));
                 ui.checkbox(&mut config.preserve_metadata, RichText::new("Preservar metadados").size(14.0));
@@ -260,33 +319,39 @@ pub fn render_header(
 
             // --- Row 4: Dual Progress Bars ---
             // Progress Bar 1: Current Active File
-            let file_progress = if current_file_total > 0 {
-                (current_file_copied as f32 / current_file_total as f32).clamp(0.0, 1.0)
+            let (file_progress, file_label_str, file_pct_str) = if is_running {
+                let p = if current_file_total > 0 {
+                    (current_file_copied as f32 / current_file_total as f32).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let name = current_file_name.as_deref().unwrap_or("Transferindo...");
+                let pct = format!(
+                    "{} / {} ({:.1}%)",
+                    format_bytes(current_file_copied),
+                    format_bytes(current_file_total),
+                    p * 100.0
+                );
+                (p, name, pct)
+            } else if total_files > 0 && (copied_files + skipped_files + error_files == total_files) {
+                (1.0, "Transferência Concluída!", "100.0%".to_string())
             } else {
-                0.0
+                (0.0, "Aguardando início...", "-".to_string())
             };
 
-            let current_file_str = current_file_name
-                .as_deref()
-                .unwrap_or("Aguardando início...");
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Arquivo:").size(14.0));
                 ui.label(
-                    RichText::new(current_file_str)
+                    RichText::new(file_label_str)
                         .size(14.0)
                         .strong()
                         .color(Color32::from_rgb(226, 232, 240)),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
-                        RichText::new(format!(
-                            "{} / {} ({:.1}%)",
-                            format_bytes(current_file_copied),
-                            format_bytes(current_file_total),
-                            file_progress * 100.0
-                        ))
-                        .size(14.0)
-                        .monospace(),
+                        RichText::new(file_pct_str)
+                            .size(14.0)
+                            .monospace(),
                     );
                 });
             });
@@ -299,8 +364,15 @@ pub fn render_header(
             ui.add_space(4.0);
 
             // Progress Bar 2: Total Transfer
-            let total_progress = if total_bytes > 0 {
-                (total_copied as f32 / total_bytes as f32).clamp(0.0, 1.0)
+            let processed_files_count = copied_files + skipped_files + error_files;
+            let is_finished = total_files > 0 && processed_files_count == total_files && !is_running;
+
+            let total_progress = if is_finished {
+                1.0
+            } else if total_bytes > 0 {
+                (processed_bytes as f32 / total_bytes as f32).clamp(0.0, 1.0)
+            } else if total_files > 0 {
+                (processed_files_count as f32 / total_files as f32).clamp(0.0, 1.0)
             } else {
                 0.0
             };
@@ -308,14 +380,18 @@ pub fn render_header(
             let speed_str = format!("{}/s", format_bytes(current_speed_bps as u64));
             let eta_str = eta.map_or_else(|| "calculando...".to_string(), format_duration);
 
+            let total_display_bytes = if is_finished { total_bytes } else { processed_bytes };
+
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Total:").size(14.0).strong());
                 ui.label(
                     RichText::new(format!(
-                        "{} de {} ({:.1}%)",
-                        format_bytes(total_copied),
+                        "{} de {} ({:.1}%)  •  {}/{} itens",
+                        format_bytes(total_display_bytes),
                         format_bytes(total_bytes),
-                        total_progress * 100.0
+                        total_progress * 100.0,
+                        processed_files_count,
+                        total_files,
                     ))
                     .size(14.0)
                     .strong(),
@@ -329,12 +405,18 @@ pub fn render_header(
                                 .color(COLOR_WARNING)
                                 .strong(),
                         );
-                    } else if total_copied > 0 && total_copied == total_bytes {
+                    } else if is_finished {
                         ui.label(
-                            RichText::new(format!("✔ Concluído em {}", format_duration(elapsed)))
-                                .size(14.0)
-                                .color(COLOR_SUCCESS)
-                                .strong(),
+                            RichText::new(format!(
+                                "✔ Concluído em {} ({} copiados, {} ignorados, {} erros)",
+                                format_duration(elapsed),
+                                copied_files,
+                                skipped_files,
+                                error_files
+                            ))
+                            .size(14.0)
+                            .color(COLOR_SUCCESS)
+                            .strong(),
                         );
                     }
                 });

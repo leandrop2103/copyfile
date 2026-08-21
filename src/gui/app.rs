@@ -46,6 +46,7 @@ pub struct CopyFileApp {
     // Progress & Metrics
     total_bytes: u64,
     copied_bytes: u64,
+    processed_bytes: u64,
     copied_files_count: usize,
     skipped_files_count: usize,
     error_files_count: usize,
@@ -86,6 +87,7 @@ impl Default for CopyFileApp {
             logs: Vec::new(),
             total_bytes: 0,
             copied_bytes: 0,
+            processed_bytes: 0,
             copied_files_count: 0,
             skipped_files_count: 0,
             error_files_count: 0,
@@ -133,6 +135,7 @@ impl CopyFileApp {
         self.last_speed_sample = Instant::now();
         self.bytes_since_last_sample = 0;
         self.copied_bytes = 0;
+        self.processed_bytes = 0;
         self.copied_files_count = 0;
         self.skipped_files_count = 0;
         self.error_files_count = 0;
@@ -201,6 +204,7 @@ impl CopyFileApp {
             self.entries.clear();
             self.total_bytes = 0;
             self.copied_bytes = 0;
+            self.processed_bytes = 0;
             self.copied_files_count = 0;
             self.skipped_files_count = 0;
             self.error_files_count = 0;
@@ -219,6 +223,7 @@ impl CopyFileApp {
                     total_bytes,
                 } => {
                     self.total_bytes = total_bytes;
+                    self.processed_bytes = 0;
                     self.entries = entries;
                     self.logs.push(LogEntry::new(
                         LogLevel::Info,
@@ -261,8 +266,10 @@ impl CopyFileApp {
                         };
                     }
                     self.copied_bytes += chunk_delta;
+                    self.processed_bytes += chunk_delta;
                     self.bytes_since_last_sample += chunk_delta;
                     self.current_file_copied = copied_bytes;
+                    self.current_file_total = total_bytes;
                 }
                 CopyEvent::FileCompleted {
                     id,
@@ -279,6 +286,8 @@ impl CopyFileApp {
                     self.copied_files_count += 1;
                 }
                 CopyEvent::FileSkipped { id, reason, hash } => {
+                    let file_size = self.entries.get(id).map_or(0, |e| e.size);
+                    self.processed_bytes += file_size;
                     if let Some(entry) = self.entries.get_mut(id) {
                         entry.status = FileStatus::Skipped { reason };
                         if let Some(h) = hash {
@@ -288,6 +297,8 @@ impl CopyFileApp {
                     self.skipped_files_count += 1;
                 }
                 CopyEvent::FileFailed { id, error } => {
+                    let file_size = self.entries.get(id).map_or(0, |e| e.size);
+                    self.processed_bytes += file_size;
                     if let Some(entry) = self.entries.get_mut(id) {
                         entry.status = FileStatus::Error { error };
                     }
@@ -299,11 +310,16 @@ impl CopyFileApp {
                     self.elapsed_time = total_duration;
                     self.current_speed_bps = 0.0;
                     self.eta = None;
+                    self.current_file_name = None;
+                    self.current_file_copied = 0;
+                    self.current_file_total = 0;
+                    self.processed_bytes = self.total_bytes;
                     self.logs.push(LogEntry::new(
                         LogLevel::Success,
                         None,
                         format!(
-                            "Cópia concluída com sucesso! Total: {} arquivos, {} ignorados, {} erros.",
+                            "Cópia concluída! Total: {} itens processados ({} copiados, {} ignorados, {} erros).",
+                            self.entries.len(),
                             self.copied_files_count,
                             self.skipped_files_count,
                             self.error_files_count
@@ -334,7 +350,7 @@ impl CopyFileApp {
                     }
 
                     if self.current_speed_bps > 0.0 {
-                        let remaining_bytes = self.total_bytes.saturating_sub(self.copied_bytes);
+                        let remaining_bytes = self.total_bytes.saturating_sub(self.processed_bytes);
                         let remaining_secs = remaining_bytes as f64 / self.current_speed_bps;
                         self.eta = Some(Duration::from_secs_f64(remaining_secs));
                     }
@@ -388,8 +404,12 @@ impl eframe::App for CopyFileApp {
                 &self.current_file_name,
                 self.current_file_copied,
                 self.current_file_total,
-                self.copied_bytes,
+                self.processed_bytes,
                 self.total_bytes,
+                self.copied_files_count,
+                self.skipped_files_count,
+                self.error_files_count,
+                self.entries.len(),
                 self.current_speed_bps,
                 self.elapsed_time,
                 self.eta,
