@@ -113,11 +113,14 @@ impl Default for CopyFileApp {
 }
 
 impl CopyFileApp {
-    /// Creates a new application instance.
+    /// Creates a new application instance with optional initial sources.
     #[must_use]
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, initial_sources: Vec<PathBuf>) -> Self {
         configure_theme(&cc.egui_ctx);
-        Self::default()
+        Self {
+            sources: initial_sources,
+            ..Default::default()
+        }
     }
 
     /// Starts scanning and file copying process.

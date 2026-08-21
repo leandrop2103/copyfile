@@ -53,16 +53,28 @@ pub fn register_context_menu() -> io::Result<()> {
 
         let exe_path = env::current_exe()?;
         let exe_str = exe_path.to_string_lossy();
-        let cmd_str = format!("\"{exe_str}\" -s \"%1\"");
-        let icon_str = format!("\"{exe_str}\",0");
         let label_str = "Copiar com CopyFile";
 
-        let paths_to_register = [
-            "Software\\Classes\\Directory\\shell\\CopyFile",
-            "Software\\Classes\\*\\shell\\CopyFile",
+        let contexts = [
+            (
+                "Software\\Classes\\Directory\\shell\\CopyFile",
+                format!("\"{exe_str}\" -s \"%1\""),
+            ),
+            (
+                "Software\\Classes\\Directory\\Background\\shell\\CopyFile",
+                format!("\"{exe_str}\" -s \"%V\""),
+            ),
+            (
+                "Software\\Classes\\Drive\\shell\\CopyFile",
+                format!("\"{exe_str}\" -s \"%1\""),
+            ),
+            (
+                "Software\\Classes\\*\\shell\\CopyFile",
+                format!("\"{exe_str}\" -s \"%1\""),
+            ),
         ];
 
-        for base_path in paths_to_register {
+        for (base_path, cmd_str) in contexts {
             let base_wide: Vec<u16> = OsStr::new(base_path)
                 .encode_wide()
                 .chain(std::iter::once(0))
@@ -100,12 +112,12 @@ pub fn register_context_menu() -> io::Result<()> {
                     );
                 }
 
-                // Set icon
+                // Set icon (displays the CopyFile icon right beside the context menu item in Explorer)
                 let icon_name_wide: Vec<u16> = OsStr::new("Icon")
                     .encode_wide()
                     .chain(std::iter::once(0))
                     .collect();
-                let icon_val_wide: Vec<u16> = OsStr::new(&icon_str)
+                let icon_val_wide: Vec<u16> = OsStr::new(&format!("\"{exe_str}\""))
                     .encode_wide()
                     .chain(std::iter::once(0))
                     .collect();
@@ -186,6 +198,8 @@ pub fn unregister_context_menu() -> io::Result<()> {
 
         let paths_to_delete = [
             "Software\\Classes\\Directory\\shell\\CopyFile",
+            "Software\\Classes\\Directory\\Background\\shell\\CopyFile",
+            "Software\\Classes\\Drive\\shell\\CopyFile",
             "Software\\Classes\\*\\shell\\CopyFile",
         ];
 

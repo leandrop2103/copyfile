@@ -34,10 +34,11 @@ fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
+    let initial_sources = args.sources;
     eframe::run_native(
         "CopyFile",
         native_options,
-        Box::new(|cc| Ok(Box::new(CopyFileApp::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(CopyFileApp::new(cc, initial_sources)))),
     )
     .map_err(|e| anyhow::anyhow!("Falha ao inicializar interface gráfica: {e}"))?;
 
