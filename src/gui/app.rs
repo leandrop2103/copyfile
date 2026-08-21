@@ -2,7 +2,9 @@
 
 use crate::core::copier::{run_copy_batch, CopyController};
 use crate::core::scanner::scan_sources;
-use crate::core::types::{CopyConfig, CopyEvent, FileEntry, FileStatus, LogEntry, LogLevel};
+use crate::core::types::{
+    CopyConfig, CopyEvent, FileEntry, FileStatus, LogEntry, LogLevel, PostCopyAction,
+};
 use crate::gui::theme::configure_theme;
 use crate::gui::views::{
     render_file_list, render_header, render_logs, render_options, render_stats, ListFilter,
@@ -325,6 +327,11 @@ impl CopyFileApp {
                             self.error_files_count
                         ),
                     ));
+
+                    Self::execute_post_copy_action(
+                        self.config.post_action,
+                        self.destination.as_ref(),
+                    );
                 }
                 CopyEvent::Log(log_entry) => {
                     self.logs.push(log_entry);
@@ -375,6 +382,65 @@ impl CopyFileApp {
                 }
             }
         });
+    }
+
+    /// Executes the requested post-copy power/audio/eject action.
+    fn execute_post_copy_action(action: PostCopyAction, dest: Option<&PathBuf>) {
+        match action {
+            PostCopyAction::None => {}
+            PostCopyAction::PlaySound => {
+                #[cfg(windows)]
+                {
+                    use std::process::Command;
+                    let _ = Command::new("powershell")
+                        .args([
+                            "-NoProfile",
+                            "-Command",
+                            "[System.Media.SystemSounds]::Asterisk.Play()",
+                        ])
+                        .spawn();
+                }
+            }
+            PostCopyAction::EjectDisk => {
+                #[cfg(windows)]
+                {
+                    if let Some(d) = dest {
+                        if let Some(prefix) = d.to_str().and_then(|s| s.get(0..2)) {
+                            use std::process::Command;
+                            let drive_letter = prefix.trim_end_matches(':');
+                            let script = format!("(New-Object -comObject Shell.Application).Namespace(17).ParseName('{drive_letter}:').InvokeVerb('Eject')");
+                            let _ = Command::new("powershell")
+                                .args(["-NoProfile", "-Command", &script])
+                                .spawn();
+                        }
+                    }
+                }
+            }
+            PostCopyAction::Sleep => {
+                #[cfg(windows)]
+                {
+                    use std::process::Command;
+                    let _ = Command::new("rundll32.exe")
+                        .args(["powrprof.dll,SetSuspendState", "0,1,0"])
+                        .spawn();
+                }
+            }
+            PostCopyAction::Shutdown => {
+                #[cfg(windows)]
+                {
+                    use std::process::Command;
+                    let _ = Command::new("shutdown.exe")
+                        .args([
+                            "/s",
+                            "/t",
+                            "60",
+                            "/c",
+                            "CopyFile: Transferência de backup concluída com sucesso.",
+                        ])
+                        .spawn();
+                }
+            }
+        }
     }
 }
 

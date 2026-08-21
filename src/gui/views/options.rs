@@ -1,7 +1,11 @@
 //! Options and settings configuration panel.
 
-use crate::core::types::{CopyConfig, OverwritePolicy};
-use eframe::egui::{RichText, Slider, Ui};
+use crate::core::shell::{
+    is_context_menu_registered, register_context_menu, unregister_context_menu,
+};
+use crate::core::types::{CopyConfig, OverwritePolicy, PostCopyAction};
+use crate::gui::theme::{COLOR_ERROR, COLOR_SUCCESS};
+use eframe::egui::{Color32, RichText, Slider, Ui};
 
 /// Renders the options / preferences view.
 pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
@@ -24,9 +28,15 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                     config.buffer_size_kb = buffer_mb * 1024;
                 }
             });
+
+            ui.add_space(4.0);
+            ui.checkbox(
+                &mut config.direct_io,
+                RichText::new("Direct I/O em arquivos grandes (>64MB - contorna cache de RAM e maximiza barramento USB/NVMe)").size(14.0),
+            );
         });
 
-        ui.add_space(12.0);
+        ui.add_space(10.0);
 
         ui.group(|ui| {
             ui.label(RichText::new("🔄 Regra de Substituição de Arquivos Existentes").strong().size(16.0));
@@ -41,7 +51,22 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
             }
         });
 
-        ui.add_space(12.0);
+        ui.add_space(10.0);
+
+        ui.group(|ui| {
+            ui.label(RichText::new("🔔 Ações ao Concluir a Transferência").strong().size(16.0));
+            ui.add_space(6.0);
+
+            for action in PostCopyAction::all() {
+                ui.radio_value(
+                    &mut config.post_action,
+                    action,
+                    RichText::new(action.label()).size(14.0),
+                );
+            }
+        });
+
+        ui.add_space(10.0);
 
         ui.group(|ui| {
             ui.label(RichText::new("🛡 Integridade e Resiliência").strong().size(16.0));
@@ -62,6 +87,35 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                 RichText::new("Preservar metadados completos (Data de Criação, Modificação, Atributos do Windows)").size(14.0),
             );
         });
+
+        ui.add_space(10.0);
+
+        // Windows Context Menu Integration
+        ui.group(|ui| {
+            ui.label(RichText::new("🖱 Integração com Windows Explorer (Menu de Contexto)").strong().size(16.0));
+            ui.add_space(6.0);
+
+            let is_registered = is_context_menu_registered();
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Status no Windows Explorer:").size(14.0));
+                if is_registered {
+                    ui.label(RichText::new("✔ Instalado (Ativo)").color(COLOR_SUCCESS).strong().size(14.0));
+                } else {
+                    ui.label(RichText::new("✖ Não instalado").color(Color32::from_rgb(148, 163, 184)).size(14.0));
+                }
+            });
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if !is_registered {
+                    if ui.button(RichText::new("➕ Adicionar 'Copiar com CopyFile' ao Menu de Contexto").strong().size(14.0)).clicked() {
+                        let _ = register_context_menu();
+                    }
+                } else if ui.button(RichText::new("➖ Remover do Menu de Contexto").color(COLOR_ERROR).size(14.0)).clicked() {
+                    let _ = unregister_context_menu();
+                }
+            });
+        });
     });
 
     if is_running {
@@ -72,7 +126,7 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
             )
             .italics()
             .size(14.0)
-            .color(eframe::egui::Color32::from_rgb(148, 163, 184)),
+            .color(Color32::from_rgb(148, 163, 184)),
         );
     }
 }

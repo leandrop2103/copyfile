@@ -62,6 +62,7 @@ fn test_batch_copy_and_verification() {
         overwrite_policy: OverwritePolicy::Always,
         num_threads: 2,
         buffer_size_kb: 256,
+        ..Default::default()
     };
 
     run_copy_batch(entries, config, controller, tx);
@@ -117,6 +118,7 @@ fn test_overwrite_policy_if_hash_differs() {
         overwrite_policy: OverwritePolicy::IfHashDiffers,
         num_threads: 2,
         buffer_size_kb: 256,
+        ..Default::default()
     };
 
     run_copy_batch(entries, config, controller, tx);
@@ -161,4 +163,19 @@ fn test_metadata_preservation() {
     let mtime_dst = FileTime::from_last_modification_time(&meta_dst);
 
     assert_eq!(mtime_src.unix_seconds(), mtime_dst.unix_seconds());
+}
+
+#[test]
+fn test_disk_space_detection() {
+    let temp_dir = std::env::temp_dir();
+    let space = copyfile::core::get_disk_space(&temp_dir);
+    assert!(space.is_some());
+    let info = space.unwrap();
+    assert!(info.total_bytes > 0);
+}
+
+#[test]
+fn test_user_presets_detection() {
+    let presets = copyfile::core::get_current_user_presets();
+    assert!(!presets.is_empty());
 }

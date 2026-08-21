@@ -1,4 +1,4 @@
-//! High-performance parallel file copy pipeline with xxHash3 verification.
+//! High-performance parallel file copy pipeline with xxHash3 verification and Direct I/O.
 
 use crate::core::hasher::{compute_file_xxhash, FastHasher};
 use crate::core::metadata::copy_metadata;
@@ -221,20 +221,25 @@ fn process_single_file(
         }
     };
 
-    let mut buffer = vec![0u8; buffer_size];
+    // Large files (>64MB) use larger chunk size (e.g. 4MB) to maximize USB 3.0/NVMe bus throughput
+    let chunk_size = if config.direct_io && entry.size >= 64 * 1024 * 1024 {
+        buffer_size.max(4 * 1024 * 1024)
+    } else {
+        buffer_size
+    };
+
+    let mut buffer = vec![0u8; chunk_size];
     let mut hasher = FastHasher::new();
     let mut bytes_copied = 0u64;
     let total_bytes = entry.size;
 
     loop {
         if controller.is_cancelled() {
-            // Delete incomplete destination file on cancel
             drop(dst_file);
             let _ = fs::remove_file(dst);
             return;
         }
 
-        // Handle pause
         while controller.is_paused() {
             if controller.is_cancelled() {
                 drop(dst_file);
@@ -308,12 +313,6 @@ fn process_single_file(
 
     // Verify Destination Integrity if requested
     if config.verify_checksum {
-        let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
-            LogLevel::Info,
-            Some(dst.clone()),
-            format!("Verificando xxHash ({src_hash})..."),
-        )));
-
         match compute_file_xxhash(dst, buffer_size) {
             Ok(dst_hash) => {
                 if dst_hash != src_hash {
@@ -416,12 +415,10 @@ fn check_overwrite_policy(
         OverwritePolicy::IfHashDiffers => {
             let src_meta = fs::metadata(src)?;
             let dst_meta = fs::metadata(dst)?;
-            // If sizes differ, hash is guaranteed to differ
             if src_meta.len() != dst_meta.len() {
                 return Ok((true, None, None));
             }
 
-            // Compute xxHash on both files to verify identical content
             let src_hash = compute_file_xxhash(src, buffer_size)?;
             let dst_hash = compute_file_xxhash(dst, buffer_size)?;
 

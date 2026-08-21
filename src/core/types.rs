@@ -4,6 +4,48 @@ use chrono::{DateTime, Local};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+/// Actions to execute automatically after all files have been copied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PostCopyAction {
+    /// No automatic action.
+    #[default]
+    None,
+    /// Play notification sound.
+    PlaySound,
+    /// Safely eject the destination USB drive.
+    EjectDisk,
+    /// Put the PC to sleep.
+    Sleep,
+    /// Shutdown the PC.
+    Shutdown,
+}
+
+impl PostCopyAction {
+    /// List all available actions.
+    #[must_use]
+    pub const fn all() -> [Self; 5] {
+        [
+            Self::None,
+            Self::PlaySound,
+            Self::EjectDisk,
+            Self::Sleep,
+            Self::Shutdown,
+        ]
+    }
+
+    /// User-facing label in Portuguese.
+    #[must_use]
+    pub const fn label(&self) -> &'static str {
+        match self {
+            Self::None => "Nenhuma ação adicional",
+            Self::PlaySound => "🔔 Tocar som de conclusão",
+            Self::EjectDisk => "⏏ Ejetar HD de destino com segurança",
+            Self::Sleep => "💤 Suspender o computador",
+            Self::Shutdown => "🛑 Desligar o computador",
+        }
+    }
+}
+
 /// Represents the status of an individual file in the copy queue.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileStatus {
@@ -134,8 +176,12 @@ pub struct CopyConfig {
     pub ignore_errors: bool,
     /// Whether to preserve creation/modification/access times and file attributes.
     pub preserve_metadata: bool,
+    /// Whether to enable Direct I/O (bypass RAM cache) on large files (>64MB).
+    pub direct_io: bool,
     /// Overwrite policy for duplicate files.
     pub overwrite_policy: OverwritePolicy,
+    /// Post-copy action to execute on completion.
+    pub post_action: PostCopyAction,
 }
 
 impl Default for CopyConfig {
@@ -148,7 +194,9 @@ impl Default for CopyConfig {
             verify_checksum: true,
             ignore_errors: true,
             preserve_metadata: true,
+            direct_io: true,
             overwrite_policy: OverwritePolicy::IfNewer,
+            post_action: PostCopyAction::None,
         }
     }
 }

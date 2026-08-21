@@ -1,5 +1,9 @@
-//! Header view displaying path selectors, action buttons, and dual progress bars.
+//! Header view displaying path selectors, user presets, disk space, action buttons, and dual progress bars.
 
+use crate::core::disk::get_disk_space;
+use crate::core::profiles::{
+    get_current_user_presets, get_presets_for_user_path, list_all_windows_users,
+};
 use crate::core::types::{CopyConfig, OverwritePolicy};
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING};
 use eframe::egui::{self, Color32, CornerRadius, ProgressBar, RichText, Stroke, Ui, Vec2};
@@ -89,19 +93,19 @@ pub fn render_header(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if !is_running {
                         if !sources.is_empty() {
-                            let clear_btn = egui::Button::new(RichText::new("🗑 Limpar Tudo").size(14.0))
-                                .min_size(Vec2::new(100.0, 32.0));
+                            let clear_btn = egui::Button::new(RichText::new("🗑 Limpar").size(14.0))
+                                .min_size(Vec2::new(80.0, 32.0));
                             if ui.add(clear_btn).clicked() {
                                 on_clear();
                             }
                         }
 
                         let add_files_btn = egui::Button::new(
-                            RichText::new("📄 + Adicionar Arquivos")
+                            RichText::new("📄 + Arquivos")
                                 .strong()
                                 .size(14.0),
                         )
-                        .min_size(Vec2::new(170.0, 32.0));
+                        .min_size(Vec2::new(120.0, 32.0));
                         if ui.add(add_files_btn).clicked() {
                             if let Some(files) = rfd::FileDialog::new().pick_files() {
                                 for f in files {
@@ -113,12 +117,12 @@ pub fn render_header(
                         }
 
                         let add_folders_btn = egui::Button::new(
-                            RichText::new("📁 + Adicionar Pastas")
+                            RichText::new("📁 + Pastas")
                                 .strong()
                                 .size(14.0),
                         )
                         .fill(Color32::from_rgb(37, 99, 235))
-                        .min_size(Vec2::new(160.0, 32.0));
+                        .min_size(Vec2::new(110.0, 32.0));
                         if ui.add(add_folders_btn).clicked() {
                             if let Some(folders) = rfd::FileDialog::new().pick_folders() {
                                 for folder in folders {
@@ -128,15 +132,50 @@ pub fn render_header(
                                 }
                             }
                         }
+
+                        // One-Click User Profile Quick Preset Button
+                        let quick_btn = egui::Button::new(
+                            RichText::new("⚡ Backup do Usuário")
+                                .strong()
+                                .size(14.0)
+                                .color(Color32::WHITE),
+                        )
+                        .fill(Color32::from_rgb(124, 58, 237)) // Purple preset
+                        .min_size(Vec2::new(170.0, 32.0));
+                        if ui.add(quick_btn).on_hover_text("Adiciona automaticamente Área de Trabalho, Documentos, Downloads, Imagens, Vídeos e Chrome do usuário atual").clicked() {
+                            for preset in get_current_user_presets() {
+                                if preset.exists && !sources.contains(&preset.path) {
+                                    sources.push(preset.path);
+                                }
+                            }
+                        }
+
+                        // Check if other Windows users exist on disk
+                        let other_users = list_all_windows_users();
+                        if other_users.len() > 1 {
+                            egui::ComboBox::from_id_salt("other_users_combo")
+                                .selected_text(RichText::new("👤 Outro Usuário").size(13.0))
+                                .show_ui(ui, |ui| {
+                                    for (name, user_path) in &other_users {
+                                        if ui.button(format!("👤 Carregar {}", name)).clicked() {
+                                            for preset in get_presets_for_user_path(user_path) {
+                                                if !sources.contains(&preset.path) {
+                                                    sources.push(preset.path);
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                        }
                     }
                 });
             });
 
-            // --- Row 1.5: List of Selected Source Badges (Always Visible!) ---
+            // --- Row 1.5: List of Selected Source Badges ---
             if sources.is_empty() {
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("Nenhuma pasta ou arquivo adicionado. Arraste pastas/arquivos para a janela ou clique nos botões acima.")
+                        RichText::new("Nenhuma pasta adicionada. Clique em '⚡ Backup do Usuário', '+ Pastas' ou arraste itens para cá.")
                             .italics()
                             .size(13.5)
                             .color(Color32::from_rgb(148, 163, 184)),
@@ -190,11 +229,18 @@ pub fn render_header(
 
             ui.add_space(6.0);
 
-            // --- Row 2: Destination Header & Picker ---
+            // --- Row 2: Destination Header, Space Checking & Picker ---
+            let disk_space_info = destination.as_ref().and_then(|d| get_disk_space(d));
+
             ui.horizontal(|ui| {
                 ui.label(RichText::new("🎯 Destino:").strong().size(16.0));
                 if let Some(dst) = destination.as_ref() {
                     let display_dst = dst.to_string_lossy().to_string();
+                    let space_str = disk_space_info.map_or_else(
+                        String::new,
+                        |info| format!("  (Livre: {} de {})", format_bytes(info.available_bytes), format_bytes(info.total_bytes)),
+                    );
+
                     egui::Frame::NONE
                         .fill(Color32::from_rgb(20, 50, 40))
                         .stroke(Stroke::new(1.0_f32, Color32::from_rgb(16, 185, 129)))
@@ -203,7 +249,7 @@ pub fn render_header(
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
-                                    RichText::new(format!("📂 {display_dst}"))
+                                    RichText::new(format!("📂 {display_dst}{space_str}"))
                                         .strong()
                                         .size(13.5)
                                         .color(Color32::from_rgb(52, 211, 153)),
@@ -240,6 +286,32 @@ pub fn render_header(
                     }
                 });
             });
+
+            // Pre-Flight Disk Space Warning Alert
+            if let Some(info) = disk_space_info {
+                if total_bytes > 0 && total_bytes > info.available_bytes {
+                    ui.add_space(4.0);
+                    egui::Frame::NONE
+                        .fill(Color32::from_rgb(60, 20, 20))
+                        .stroke(Stroke::new(1.0_f32, COLOR_ERROR))
+                        .corner_radius(CornerRadius::same(4))
+                        .inner_margin(egui::Margin::symmetric(10, 4))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "⚠ ATENÇÃO: Espaço insuficiente na unidade de destino! Necessário: {} | Disponível: {}",
+                                        format_bytes(total_bytes),
+                                        format_bytes(info.available_bytes)
+                                    ))
+                                    .color(COLOR_ERROR)
+                                    .strong()
+                                    .size(13.5),
+                                );
+                            });
+                        });
+                }
+            }
 
             ui.add_space(6.0);
             ui.separator();
@@ -379,7 +451,6 @@ pub fn render_header(
 
             let speed_str = format!("{}/s", format_bytes(current_speed_bps as u64));
             let eta_str = eta.map_or_else(|| "calculando...".to_string(), format_duration);
-
             let total_display_bytes = if is_finished { total_bytes } else { processed_bytes };
 
             ui.horizontal(|ui| {
