@@ -73,7 +73,10 @@ pub fn render_header(
     on_toggle_pause: impl FnOnce(),
     on_cancel: impl FnOnce(),
     on_clear: impl FnOnce(),
+    on_open_sources_manager: impl FnOnce(),
 ) {
+    let mut open_sources_manager_requested = false;
+
     egui::Frame::NONE
         .fill(Color32::from_rgb(24, 33, 47))
         .inner_margin(14.0)
@@ -82,12 +85,18 @@ pub fn render_header(
             ui.horizontal(|ui| {
                 ui.label(RichText::new("📁 Origens Selecionadas:").strong().size(16.0));
                 if !sources.is_empty() {
-                    ui.label(
-                        RichText::new(format!("({} itens adicionados)", sources.len()))
-                            .size(14.0)
-                            .color(COLOR_ACCENT)
-                            .strong(),
+                    let manage_btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(format!("📋 Gerenciar ({}) ▾", sources.len()))
+                                .size(13.5)
+                                .color(COLOR_ACCENT)
+                                .strong(),
+                        )
+                        .frame(false),
                     );
+                    if manage_btn.on_hover_text("Clique para abrir o Gerenciador de Pastas e Arquivos de Origem").clicked() {
+                        open_sources_manager_requested = true;
+                    }
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -183,48 +192,69 @@ pub fn render_header(
             } else {
                 ui.add_space(2.0);
                 let mut remove_idx = None;
-                egui::ScrollArea::vertical()
-                    .max_height(85.0)
-                    .auto_shrink([false, true])
-                    .show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            for (idx, src) in sources.iter().enumerate() {
-                                let is_dir = src.is_dir();
-                                let icon = if is_dir { "📁" } else { "📄" };
-                                let display_path = src.to_string_lossy().to_string();
+                let max_preview = 4;
+                let has_more = sources.len() > max_preview;
 
-                                egui::Frame::NONE
-                                    .fill(Color32::from_rgb(30, 41, 59))
-                                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
-                                    .corner_radius(CornerRadius::same(5))
-                                    .inner_margin(egui::Margin::symmetric(8, 4))
-                                    .show(ui, |ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(format!("{icon} {display_path}"))
-                                                    .size(13.0)
-                                                    .strong()
-                                                    .color(Color32::from_rgb(226, 232, 240)),
-                                            );
-                                            if !is_running {
-                                                let remove_btn = ui.add(
-                                                    egui::Button::new(
-                                                        RichText::new("✖")
-                                                            .color(COLOR_ERROR)
-                                                            .size(11.0)
-                                                            .strong(),
-                                                    )
-                                                    .frame(false),
-                                                );
-                                                if remove_btn.clicked() {
-                                                    remove_idx = Some(idx);
-                                                }
-                                            }
-                                        });
-                                    });
-                            }
-                        });
-                    });
+                ui.horizontal_wrapped(|ui| {
+                    for (idx, src) in sources.iter().enumerate().take(max_preview) {
+                        let is_dir = src.is_dir();
+                        let icon = if is_dir { "📁" } else { "📄" };
+                        let display_path = src.to_string_lossy().to_string();
+
+                        egui::Frame::NONE
+                            .fill(Color32::from_rgb(30, 41, 59))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
+                            .corner_radius(CornerRadius::same(5))
+                            .inner_margin(egui::Margin::symmetric(8, 4))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(format!("{icon} {display_path}"))
+                                            .size(13.0)
+                                            .strong()
+                                            .color(Color32::from_rgb(226, 232, 240)),
+                                    );
+                                    if !is_running {
+                                        let remove_btn = ui.add(
+                                            egui::Button::new(
+                                                RichText::new("✖")
+                                                    .color(COLOR_ERROR)
+                                                    .size(11.0)
+                                                    .strong(),
+                                            )
+                                            .frame(false),
+                                        );
+                                        if remove_btn.clicked() {
+                                            remove_idx = Some(idx);
+                                        }
+                                    }
+                                });
+                            });
+                    }
+
+                    if has_more {
+                        let extra_count = sources.len() - max_preview;
+                        egui::Frame::NONE
+                            .fill(Color32::from_rgb(37, 99, 235))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(96, 165, 250)))
+                            .corner_radius(CornerRadius::same(5))
+                            .inner_margin(egui::Margin::symmetric(8, 4))
+                            .show(ui, |ui| {
+                                let more_btn = ui.add(
+                                    egui::Button::new(
+                                        RichText::new(format!("📋 +{extra_count} outras origens... (Ver todas)"))
+                                            .size(13.0)
+                                            .strong()
+                                            .color(Color32::WHITE),
+                                    )
+                                    .frame(false),
+                                );
+                                if more_btn.clicked() {
+                                    open_sources_manager_requested = true;
+                                }
+                            });
+                    }
+                });
 
                 if let Some(idx) = remove_idx {
                     sources.remove(idx);
@@ -546,4 +576,8 @@ pub fn render_header(
                     .fill(COLOR_SUCCESS),
             );
         });
+
+    if open_sources_manager_requested {
+        on_open_sources_manager();
+    }
 }

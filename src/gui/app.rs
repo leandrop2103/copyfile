@@ -76,6 +76,8 @@ pub struct CopyFileApp {
     taskbar: crate::core::taskbar::TaskbarProgress,
     hwnd: isize,
     show_completion_modal: bool,
+    show_sources_manager: bool,
+    sources_search_query: String,
 }
 
 impl Default for CopyFileApp {
@@ -116,6 +118,8 @@ impl Default for CopyFileApp {
             taskbar: crate::core::taskbar::TaskbarProgress::new(),
             hwnd: 0,
             show_completion_modal: false,
+            show_sources_manager: false,
+            sources_search_query: String::new(),
         }
     }
 }
@@ -518,6 +522,7 @@ impl eframe::App for CopyFileApp {
             let mut pause_requested = false;
             let mut cancel_requested = false;
             let mut clear_requested = false;
+            let mut open_sources_requested = false;
 
             render_header(
                 ui,
@@ -542,6 +547,7 @@ impl eframe::App for CopyFileApp {
                 || pause_requested = true,
                 || cancel_requested = true,
                 || clear_requested = true,
+                || open_sources_requested = true,
             );
 
             if start_requested {
@@ -555,6 +561,9 @@ impl eframe::App for CopyFileApp {
             }
             if clear_requested {
                 self.clear_all();
+            }
+            if open_sources_requested {
+                self.show_sources_manager = true;
             }
         });
 
@@ -610,6 +619,17 @@ impl eframe::App for CopyFileApp {
                 );
             }
         });
+
+        // --- Sources Manager Modal Dialog ---
+        if self.show_sources_manager {
+            crate::gui::views::render_sources_manager_modal(
+                ctx,
+                &mut self.show_sources_manager,
+                &mut self.sources,
+                &mut self.sources_search_query,
+                self.is_running,
+            );
+        }
 
         // --- Completion Summary Modal Dialog ---
         if self.show_completion_modal {

@@ -194,3 +194,167 @@ fn render_stat_row(ui: &mut Ui, label: &str, value: &str, color: Color32) {
         });
     });
 }
+
+/// Renders the Source Folders & Files manager modal dialog.
+pub fn render_sources_manager_modal(
+    ctx: &egui::Context,
+    is_open: &mut bool,
+    sources: &mut Vec<PathBuf>,
+    search_query: &mut String,
+    is_running: bool,
+) {
+    if !*is_open {
+        return;
+    }
+
+    egui::Window::new("📁 Gerenciador de Pastas e Arquivos de Origem")
+        .collapsible(false)
+        .resizable(true)
+        .default_size(Vec2::new(700.0, 480.0))
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .frame(
+            egui::Frame::NONE
+                .fill(Color32::from_rgb(15, 23, 42))
+                .stroke(Stroke::new(1.5_f32, Color32::from_rgb(59, 130, 246)))
+                .corner_radius(CornerRadius::same(10))
+                .inner_margin(egui::Margin::same(20)),
+        )
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("🔍").size(15.0));
+                ui.add(
+                    egui::TextEdit::singleline(search_query)
+                        .hint_text("Filtrar pastas ou arquivos adicionados...")
+                        .desired_width(320.0),
+                );
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if !is_running && !sources.is_empty() {
+                        let clear_btn = egui::Button::new(
+                            RichText::new("🗑 Limpar Tudo").color(COLOR_ERROR).size(13.5),
+                        );
+                        if ui.add(clear_btn).clicked() {
+                            sources.clear();
+                        }
+                    }
+                });
+            });
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            let q = search_query.to_lowercase();
+            let mut remove_idx = None;
+
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .max_height(320.0)
+                .show(ui, |ui| {
+                    if sources.is_empty() {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(40.0);
+                            ui.label(
+                                RichText::new("Nenhuma pasta ou arquivo adicionado.")
+                                    .color(COLOR_MUTED)
+                                    .size(15.0)
+                                    .italics(),
+                            );
+                        });
+                    } else {
+                        for (idx, src) in sources.iter().enumerate() {
+                            let path_str = src.to_string_lossy();
+                            if !q.is_empty() && !path_str.to_lowercase().contains(&q) {
+                                continue;
+                            }
+
+                            let is_dir = src.is_dir();
+                            let icon = if is_dir { "📁" } else { "📄" };
+
+                            egui::Frame::NONE
+                                .fill(Color32::from_rgb(24, 33, 47))
+                                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                                .corner_radius(CornerRadius::same(6))
+                                .inner_margin(egui::Margin::symmetric(12, 8))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new(icon).size(16.0));
+                                        ui.label(
+                                            RichText::new(path_str.to_string())
+                                                .size(13.5)
+                                                .strong()
+                                                .color(Color32::from_rgb(226, 232, 240)),
+                                        );
+
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if !is_running {
+                                                    let rem_btn = egui::Button::new(
+                                                        RichText::new("✖ Remover")
+                                                            .color(COLOR_ERROR)
+                                                            .size(12.5),
+                                                    );
+                                                    if ui.add(rem_btn).clicked() {
+                                                        remove_idx = Some(idx);
+                                                    }
+                                                }
+                                            },
+                                        );
+                                    });
+                                });
+                            ui.add_space(4.0);
+                        }
+                    }
+                });
+
+            if let Some(idx) = remove_idx {
+                sources.remove(idx);
+            }
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(10.0);
+
+            ui.horizontal(|ui| {
+                if !is_running {
+                    let add_fld =
+                        egui::Button::new(RichText::new("📁 + Adicionar Pastas").size(13.5));
+                    if ui.add(add_fld).clicked() {
+                        if let Some(folders) = rfd::FileDialog::new().pick_folders() {
+                            for f in folders {
+                                if !sources.contains(&f) {
+                                    sources.push(f);
+                                }
+                            }
+                        }
+                    }
+                    let add_fls =
+                        egui::Button::new(RichText::new("📄 + Adicionar Arquivos").size(13.5));
+                    if ui.add(add_fls).clicked() {
+                        if let Some(files) = rfd::FileDialog::new().pick_files() {
+                            for f in files {
+                                if !sources.contains(&f) {
+                                    sources.push(f);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let close_btn = egui::Button::new(
+                        RichText::new("✔ Concluir")
+                            .strong()
+                            .size(14.0)
+                            .color(Color32::WHITE),
+                    )
+                    .fill(Color32::from_rgb(37, 99, 235))
+                    .min_size(Vec2::new(110.0, 34.0));
+                    if ui.add(close_btn).clicked() {
+                        *is_open = false;
+                    }
+                });
+            });
+        });
+}
