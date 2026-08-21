@@ -3,7 +3,7 @@
 use crate::core::types::{FileEntry, FileStatus};
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
 use crate::gui::views::header::format_bytes;
-use eframe::egui::{self, Color32, RichText, ScrollArea, Ui};
+use eframe::egui::{self, RichText, ScrollArea, Ui};
 use egui_extras::{Column, TableBuilder};
 
 /// Filter options for viewing files in the list.
@@ -158,12 +158,11 @@ pub fn render_file_list(
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                 .column(Column::exact(45.0)) // Status Icon Only
-                .column(Column::initial(360.0).at_least(180.0)) // Origem
-                .column(Column::initial(360.0).at_least(180.0)) // Destino
+                .column(Column::initial(520.0).at_least(240.0)) // Origem / Caminho
                 .column(Column::exact(110.0)) // xxHash
                 .column(Column::exact(95.0)) // Tamanho
                 .column(Column::exact(75.0)) // Atributos
-                .column(Column::initial(300.0).at_least(150.0)); // Detalhes / Motivo
+                .column(Column::initial(320.0).at_least(160.0)); // Detalhes / Motivo
 
             if *auto_scroll {
                 if let Some(active_idx) = active_row_idx {
@@ -177,10 +176,7 @@ pub fn render_file_list(
                         ui.strong(RichText::new("St.").size(14.0));
                     });
                     header.col(|ui| {
-                        ui.strong(RichText::new("Origem").size(14.0));
-                    });
-                    header.col(|ui| {
-                        ui.strong(RichText::new("Destino").size(14.0));
+                        ui.strong(RichText::new("Arquivo / Caminho de Origem").size(14.0));
                     });
                     header.col(|ui| {
                         ui.strong(RichText::new("xxHash3").size(14.0));
@@ -231,17 +227,7 @@ pub fn render_file_list(
                             ui.label(RichText::new(text).color(status_color).size(13.0));
                         });
 
-                        // Column 3: Destination Path
-                        row.col(|ui| {
-                            let text = entry.dest_path.to_string_lossy();
-                            ui.label(
-                                RichText::new(text)
-                                    .size(13.0)
-                                    .color(Color32::from_rgb(203, 213, 225)),
-                            );
-                        });
-
-                        // Column 4: Checksum Hash
+                        // Column 3: Checksum Hash
                         row.col(|ui| {
                             let hash_str = entry.hash.as_deref().unwrap_or("-");
                             ui.label(
