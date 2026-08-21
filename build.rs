@@ -4,6 +4,19 @@
 fn main() {
     let mut res = winres::WindowsResource::new();
     res.set_icon("assets/copyfile.ico");
+    res.set("FileVersion", "1.0.0.0");
+    res.set("ProductVersion", "1.0.0.0");
+    res.set("ProductName", "CopyFile");
+    res.set(
+        "FileDescription",
+        "CopyFile - Cópia e Backup de Alta Performance",
+    );
+    res.set(
+        "LegalCopyright",
+        "Copyright © 2026 Leandro + Gemini (DeepMind)",
+    );
+    res.set("OriginalFilename", "copyfile.exe");
+    res.set("InternalName", "copyfile");
 
     let is_release = std::env::var("PROFILE").is_ok_and(|p| p == "release");
     let execution_level = if is_release {

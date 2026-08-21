@@ -1,11 +1,11 @@
 [package]
 name = "copyfile"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
-authors = ["Leandro"]
+authors = ["Leandro", "Gemini"]
 description = "Ultra-fast parallel file backup and transfer tool with TeraCopy-inspired GUI and xxHash3 verification"
 readme = "README.md"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [dependencies]
 # GUI

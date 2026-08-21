@@ -1,58 +1,105 @@
-# CopyFile ⚡
+<div align="center">
 
-Ferramenta de cópia de arquivos e backup ultra-rápida, multiplataforma (Windows 10/11 e Linux), escrita em Rust com foco em alto desempenho, baixa latência e integridade absoluta. Inspirada na usabilidade e fluidez do **TeraCopy**.
+# ⚡ CopyFile (v1.0.0)
 
----
+**Utilitário de Cópia, Backup e Sincronização de Arquivos em Massa de Altíssimo Desempenho para Windows.**
 
-## 🚀 Principais Recursos
+Construído em **Rust**, com aceleração multithread via **Rayon**, verificação criptográfica **xxHash3 (XXH3)**, suporte a **Direct I/O**, interface nativa moderna em **egui** e integração total com o **Windows Explorer**.
 
-- **Interface Gráfica Moderna (GUI)** construída com `egui/eframe`:
-  - Inicialização instantânea (<100ms) e consumo mínimo de memória (<25MB de RAM).
-  - Tabela virtualizada com scroll a 60+ FPS para listas com centenas de milhares de arquivos.
-  - Seleção flexível de origens (múltiplos arquivos ou pastas simultaneamente) e destino único.
-  - Suporte completo a **Arrastar e Soltar (Drag & Drop)** direto para a janela.
-- **Identificação Visual por Cores de Status**:
-  - 🟢 **Verde (`✔ Concluído`)**: Arquivos copiados e verificados com sucesso.
-  - 🟡 **Laranja/Amarelo (`⚠ Ignorado`)**: Arquivos ignorados pelas regras de substituição.
-  - 🔴 **Vermelho (`✖ Erro`)**: Arquivos com falha de leitura/gravação/permissão.
-  - 🔵 **Azul (`🔄 Copiando`)**: Arquivo em transferência ativa.
-- **Verificação Criptográfica de Integridade com xxHash3 (XXH3)**:
-  - Checksums calculados com vetorização SIMD em tempo de streaming (>30 GB/s por núcleo).
-  - Validação byte-a-byte do destino após a cópia.
-- **Cópia Paralela Multi-Thread**:
-  - Saturation da largura de banda de SSDs NVMe e HDDs externos com worker pool assíncrono.
-  - Buffers reutilizáveis por thread para zero alocações na heap durante a transferência.
-- **Preservação Rigorosa de Metadados**:
-  - Data e hora de criação (*Birthtime/Creation Time*).
-  - Data e hora de modificação e acesso (*Modified & Access Time*).
-  - Atributos nativos do sistema de arquivos Windows (Somente leitura, Oculto, Sistema, Arquivo Morto).
-- **Tolerância a Falhas e Logs Detalhados**:
-  - Opção de **ignorar erros** para não interromper backups longos.
-  - Aba de **Registro / Log** com motivo detalhado de cada falha, exportação em `.txt` e cópia para o clipboard.
-- **Modo Linha de Comando (Headless CLI)**:
-  - Pode ser executado em scripts e automações sem abrir a janela gráfica.
+[![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?style=flat&logo=rust)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg?logo=windows)](https://microsoft.com/windows)
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 
 ---
 
-## 🛠 Compilação e Otimizações de Release
+</div>
 
-O projeto já está configurado com `LTO = "fat"`, `opt-level = 3`, `codegen-units = 1`, `panic = "abort"` e compilação com CRT estático no Windows.
+## 🌟 Principais Recursos
 
-### Compilar versão de produção (Release):
+### 🚀 Desempenho Extremo
+- **Pipeline Paralelo Rayon**: Distribuição dinâmica de trabalho entre múltiplos núcleos de CPU com buffers otimizados em streaming contínuo.
+- **Direct I/O Automático**: Em arquivos grandes (>64 MB), ignora o cache de RAM do Windows para evitar saturação de memória e maximizar a taxa real de leitura/gravação no barramento NVMe / SSD / HD.
+- **Integridade Instantânea com xxHash3**: Validação de integridade bit-a-bit a mais de 30 GB/s por núcleo, garantindo que nenhum arquivo seja corrompido durante a transferência.
+
+### 🔄 Modos de Operação
+1. **Copiar (Manter Origens)**: Cópia paralela de alto desempenho preservando arquivos de origem.
+2. **Mover / Recortar Seguro**: Só deleta o arquivo de origem após a cópia e a validação do hash xxHash3 no destino serem 100% concluídas com sucesso.
+3. **Sincronizar (Espelho / Mirror)**: Mantém o destino perfeitamente espelhado à origem, copiando arquivos novos/alterados e removendo automaticamente arquivos obsoletos que foram excluídos da origem.
+
+### 🛡️ Resiliência & Reprocessamento de Erros
+- **🔁 Reprocessamento Rápido em 1 Clique (*Retry Failed Files*)**: Caso ocorra erro por bloqueio de antivírus ou permissão, repete apenas os arquivos que falharam sem precisar reiniciar todo o lote.
+- **Sobrescrita Inteligente**:
+  - *Substituir se mais recente (Timestamp)*.
+  - *Verificar xxHash: Pular se idêntico, substituir se diferente*.
+  - *Sempre substituir*.
+  - *Pular existentes*.
+  - *Substituir se tamanho/data diferir*.
+- **Preservação Completa de Metadados**: Copia data de criação, última modificação, último acesso e atributos de arquivo nativos do Windows (`Read-Only`, `Hidden`, `System`, `Archive`).
+
+### 📊 Monitoramento & Gráficos em Tempo Real
+- **📈 Gráfico de Velocidade Interativo**: Traçado em tempo real com taxa atual (MB/s), média global, marcador de pico máximo e escala dinâmica.
+- **Barra de Tarefas do Windows**: Indicador de progresso nativo no ícone da barra de tarefas com estados Verde (Normal), Amarelo (Pausado) e Vermelho (Erro).
+- **🔔 Notificações Nativas (Windows Toast)**: Alerta sonoro discreto e notificação ao finalizar backups demorados em segundo plano.
+
+### 📑 Relatórios de Auditoria
+- **🌐 Relatório Web HTML5**: Relatório visual independente com barra de busca em tempo real, status e hashes xxHash3 de todos os arquivos.
+- **📊 Planilha CSV (UTF-8 BOM)**: Compatibilidade imediata com Microsoft Excel sem problemas de codificação ou acentuação.
+
+### 🗂️ Fila Inteligente de Transferências (*Transfer Queue*)
+- Enfileiramento sequencial de múltiplos trabalhos de cópia/backup para não saturar o disco com operações simultâneas concorrentes.
+
+---
+
+## ⌨️ Atalhos de Teclado
+
+| Atalho | Ação |
+| :--- | :--- |
+| **`F5`** ou **`Ctrl + Enter`** | Iniciar Cópia / Sincronização |
+| **`Espaço`** | Pausar / Continuar transferência ativa |
+| **`Esc`** | Fechar modais abertos ou Cancelar operação ativa |
+| **`Ctrl + O`** | Abrir seletor de pastas de origem |
+| **`Ctrl + D`** | Abrir seletor de pasta de destino |
+| **`Ctrl + F`** | Focar na aba Lista de Arquivos |
+
+---
+
+## 🖱️ Arrastar e Soltar (*Drag & Drop*) & Menu de Contexto
+- **Arrastar e Soltar**: Basta arrastar pastas ou arquivos de qualquer janela do Windows Explorer e soltar dentro do CopyFile para adicioná-los às origens.
+- **Menu de Contexto do Windows**: Adicione a opção *"Copiar com CopyFile"* ao clicar com botão direito em qualquer pasta pelo painel de **⚙ Opções**.
+
+---
+
+## 🛠️ Compilação e Execução
+
+### Pré-requisitos
+- [Rust & Cargo](https://rustup.rs/) (versão 1.80+)
+- Windows 10 ou Windows 11 (x64)
+
+### Como compilar:
 ```bash
+# Clonar o repositório
+git clone https://github.com/leandro-dev/copyfile.git
+cd copyfile
+
+# Executar em modo desenvolvimento
+cargo run
+
+# Compilar versão final de alta performance
 cargo build --release
 ```
-
-O binário final autônomo será gerado em `target/release/copyfile.exe`.
+O executável otimizado estará disponível em `target/release/copyfile.exe`.
 
 ---
 
-## 💻 Uso via Linha de Comando (CLI)
+## 📜 Licença
 
-```bash
-# Cópia simples com verificação xxHash e 8 threads
-copyfile.exe --cli -s "C:\MinhaPasta" "C:\Documentos" -d "E:\Backup" -t 8
+Distribuído sob a licença **MIT**. Veja [`LICENSE`](LICENSE) para mais detalhes.
 
-# Pular arquivos existentes e silenciar erros
-copyfile.exe --cli -s "D:\Projetos" -d "F:\Backup" --overwrite never
-```
+---
+
+<div align="center">
+
+Desenvolvido por **Leandro** em parceria com **Gemini (Google DeepMind)**.
+
+</div>

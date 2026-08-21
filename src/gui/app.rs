@@ -537,14 +537,64 @@ impl CopyFileApp {
             if !i.raw.dropped_files.is_empty() {
                 for dropped in &i.raw.dropped_files {
                     if let Some(path) = &dropped.path {
-                        if self.destination.is_none() && self.sources.len() == 1 {
-                            // If source already has an item, set second drop as destination
-                            self.destination = Some(path.clone());
-                        } else if !self.sources.contains(path) {
+                        if !self.sources.contains(path) {
                             self.sources.push(path.clone());
                         }
                     }
                 }
+            }
+        });
+    }
+
+    /// Handles global keyboard productivity shortcuts.
+    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
+        ctx.input(|i| {
+            // Escape: Close modals or Cancel active operation
+            if i.key_pressed(egui::Key::Escape) {
+                if self.show_completion_modal {
+                    self.show_completion_modal = false;
+                } else if self.show_sources_manager {
+                    self.show_sources_manager = false;
+                } else if self.is_running {
+                    self.cancel_copy();
+                }
+            }
+
+            // F5 or Ctrl+Enter: Start Copy / Sync
+            if (i.key_pressed(egui::Key::F5) || (i.modifiers.ctrl && i.key_pressed(egui::Key::Enter)))
+                && !self.is_running
+                && !self.sources.is_empty()
+                && self.destination.is_some()
+            {
+                self.start_copy();
+            }
+
+            // Space: Pause / Resume
+            if i.key_pressed(egui::Key::Space) && self.is_running && !i.modifiers.ctrl {
+                self.toggle_pause();
+            }
+
+            // Ctrl+O: Add Source Folders
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::O) && !self.is_running {
+                if let Some(folders) = rfd::FileDialog::new().pick_folders() {
+                    for f in folders {
+                        if !self.sources.contains(&f) {
+                            self.sources.push(f);
+                        }
+                    }
+                }
+            }
+
+            // Ctrl+D: Choose Destination Folder
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::D) && !self.is_running {
+                if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                    self.destination = Some(folder);
+                }
+            }
+
+            // Ctrl+F: Switch to FileList tab
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::F) {
+                self.active_tab = AppTab::FileList;
             }
         });
     }
@@ -623,6 +673,7 @@ impl CopyFileApp {
 impl eframe::App for CopyFileApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_drag_and_drop(ctx);
+        self.handle_keyboard_shortcuts(ctx);
         self.handle_events();
 
         if self.is_running {
