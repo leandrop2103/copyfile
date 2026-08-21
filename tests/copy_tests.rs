@@ -87,6 +87,59 @@ fn test_batch_copy_and_verification() {
 }
 
 #[test]
+fn test_overwrite_policy_if_hash_differs() {
+    let (src, dst) = setup_temp_dir("hash_policy");
+    let file1_src = src.join("identico.txt");
+    let file2_src = src.join("alterado.txt");
+
+    fs::write(&file1_src, "Conteúdo 100% idêntico").unwrap();
+    fs::write(&file2_src, "Conteúdo Novo Atualizado").unwrap();
+
+    // In destination, create one identical file and one differing file
+    let dst_src_folder = dst.join("src");
+    fs::create_dir_all(&dst_src_folder).unwrap();
+
+    let file1_dst = dst_src_folder.join("identico.txt");
+    let file2_dst = dst_src_folder.join("alterado.txt");
+
+    fs::write(&file1_dst, "Conteúdo 100% idêntico").unwrap();
+    fs::write(&file2_dst, "Conteúdo Velho Antigo").unwrap();
+
+    let (entries, _) = scan_sources(std::slice::from_ref(&src), &dst);
+    assert_eq!(entries.len(), 2);
+
+    let (tx, rx) = unbounded();
+    let controller = CopyController::new();
+    let config = CopyConfig {
+        verify_checksum: true,
+        ignore_errors: true,
+        preserve_metadata: true,
+        overwrite_policy: OverwritePolicy::IfHashDiffers,
+        num_threads: 2,
+        buffer_size_kb: 256,
+    };
+
+    run_copy_batch(entries, config, controller, tx);
+
+    let mut skipped = 0;
+    let mut completed = 0;
+    while let Ok(event) = rx.recv() {
+        match event {
+            CopyEvent::FileSkipped { .. } => skipped += 1,
+            CopyEvent::FileCompleted { .. } => completed += 1,
+            _ => {}
+        }
+    }
+
+    assert_eq!(skipped, 1);
+    assert_eq!(completed, 1);
+
+    // Verify alterado.txt was overwritten with new content
+    let content_dst2 = fs::read_to_string(&file2_dst).unwrap();
+    assert_eq!(content_dst2, "Conteúdo Novo Atualizado");
+}
+
+#[test]
 fn test_metadata_preservation() {
     let (src, dst) = setup_temp_dir("metadata");
     let file_src = src.join("meta_src.txt");

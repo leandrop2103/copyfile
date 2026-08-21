@@ -23,11 +23,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Launch GUI Mode with eframe
+    let icon = copyfile::gui::create_app_icon();
     let native_options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("CopyFile - Cópia e Backup de Alta Performance")
-            .with_inner_size(Vec2::new(1020.0, 680.0))
-            .with_min_inner_size(Vec2::new(760.0, 500.0))
+            .with_icon(icon)
+            .with_inner_size(Vec2::new(1080.0, 720.0))
+            .with_min_inner_size(Vec2::new(800.0, 540.0))
             .with_drag_and_drop(true),
         ..Default::default()
     };

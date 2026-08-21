@@ -123,15 +123,20 @@ fn process_single_file(
         return;
     }
 
+    let buffer_size = (config.buffer_size_kb * 1024).max(64 * 1024);
+
     // Check Overwrite Policy
     if dst.exists() {
-        match check_overwrite_policy(src, dst, config.overwrite_policy) {
-            Ok(should_copy) => {
+        match check_overwrite_policy(src, dst, config.overwrite_policy, buffer_size) {
+            Ok((should_copy, skip_reason, verified_hash)) => {
                 if !should_copy {
-                    let reason = format!("Ignorado pela regra {:?}", config.overwrite_policy);
+                    let reason = skip_reason.unwrap_or_else(|| {
+                        format!("Ignorado pela regra {:?}", config.overwrite_policy)
+                    });
                     let _ = event_tx.send(CopyEvent::FileSkipped {
                         id: entry.id,
                         reason: reason.clone(),
+                        hash: verified_hash,
                     });
                     let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
                         LogLevel::Warn,
@@ -216,7 +221,6 @@ fn process_single_file(
         }
     };
 
-    let buffer_size = (config.buffer_size_kb * 1024).max(64 * 1024);
     let mut buffer = vec![0u8; buffer_size];
     let mut hasher = FastHasher::new();
     let mut bytes_copied = 0u64;
@@ -367,26 +371,69 @@ fn check_overwrite_policy(
     src: &Path,
     dst: &Path,
     policy: OverwritePolicy,
-) -> std::io::Result<bool> {
+    buffer_size: usize,
+) -> std::io::Result<(bool, Option<String>, Option<String>)> {
     match policy {
-        OverwritePolicy::Always => Ok(true),
-        OverwritePolicy::Never => Ok(false),
+        OverwritePolicy::Always => Ok((true, None, None)),
+        OverwritePolicy::Never => Ok((
+            false,
+            Some("Arquivo já existe no destino".to_string()),
+            None,
+        )),
         OverwritePolicy::IfNewer => {
             let src_meta = fs::metadata(src)?;
             let dst_meta = fs::metadata(dst)?;
             let src_mtime = src_meta.modified()?;
             let dst_mtime = dst_meta.modified()?;
-            Ok(src_mtime > dst_mtime)
+            if src_mtime > dst_mtime {
+                Ok((true, None, None))
+            } else {
+                Ok((
+                    false,
+                    Some("Arquivo de destino já é mais recente ou igual".to_string()),
+                    None,
+                ))
+            }
         }
         OverwritePolicy::IfDiffers => {
             let src_meta = fs::metadata(src)?;
             let dst_meta = fs::metadata(dst)?;
             if src_meta.len() != dst_meta.len() {
-                return Ok(true);
+                return Ok((true, None, None));
             }
             let src_mtime = src_meta.modified()?;
             let dst_mtime = dst_meta.modified()?;
-            Ok(src_mtime != dst_mtime)
+            if src_mtime != dst_mtime {
+                Ok((true, None, None))
+            } else {
+                Ok((
+                    false,
+                    Some("Arquivo existente possui mesmo tamanho e data".to_string()),
+                    None,
+                ))
+            }
+        }
+        OverwritePolicy::IfHashDiffers => {
+            let src_meta = fs::metadata(src)?;
+            let dst_meta = fs::metadata(dst)?;
+            // If sizes differ, hash is guaranteed to differ
+            if src_meta.len() != dst_meta.len() {
+                return Ok((true, None, None));
+            }
+
+            // Compute xxHash on both files to verify identical content
+            let src_hash = compute_file_xxhash(src, buffer_size)?;
+            let dst_hash = compute_file_xxhash(dst, buffer_size)?;
+
+            if src_hash == dst_hash {
+                Ok((
+                    false,
+                    Some(format!("Conteúdo idêntico no destino [xxHash: {src_hash}]")),
+                    Some(src_hash),
+                ))
+            } else {
+                Ok((true, None, None))
+            }
         }
     }
 }

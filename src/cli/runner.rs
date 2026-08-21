@@ -60,6 +60,7 @@ pub fn run_cli(args: CliArgs) -> anyhow::Result<()> {
         "always" => OverwritePolicy::Always,
         "never" => OverwritePolicy::Never,
         "if-differs" => OverwritePolicy::IfDiffers,
+        "if-hash-differs" | "hash" => OverwritePolicy::IfHashDiffers,
         _ => OverwritePolicy::IfNewer,
     };
 

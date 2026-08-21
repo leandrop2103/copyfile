@@ -85,6 +85,8 @@ pub enum OverwritePolicy {
     /// Overwrite only if the source file has a newer modification time.
     #[default]
     IfNewer,
+    /// Calculate xxHash: Skip if hash is identical, overwrite if hash differs.
+    IfHashDiffers,
     /// Always overwrite destination files unconditionally.
     Always,
     /// Never overwrite destination files; skip them.
@@ -96,8 +98,14 @@ pub enum OverwritePolicy {
 impl OverwritePolicy {
     /// List all selectable options.
     #[must_use]
-    pub const fn all() -> [Self; 4] {
-        [Self::IfNewer, Self::Always, Self::Never, Self::IfDiffers]
+    pub const fn all() -> [Self; 5] {
+        [
+            Self::IfNewer,
+            Self::IfHashDiffers,
+            Self::Always,
+            Self::Never,
+            Self::IfDiffers,
+        ]
     }
 
     /// User-facing description in Portuguese.
@@ -105,6 +113,7 @@ impl OverwritePolicy {
     pub const fn label(&self) -> &'static str {
         match self {
             Self::IfNewer => "Substituir se mais recente",
+            Self::IfHashDiffers => "Verificar xxHash: Pular se idêntico, substituir se diferente",
             Self::Always => "Sempre substituir",
             Self::Never => "Pular existentes",
             Self::IfDiffers => "Substituir se tamanho/data diferir",
@@ -257,7 +266,11 @@ pub enum CopyEvent {
         duration_ms: u64,
     },
     /// File was skipped.
-    FileSkipped { id: usize, reason: String },
+    FileSkipped {
+        id: usize,
+        reason: String,
+        hash: Option<String>,
+    },
     /// File failed with an error.
     FileFailed { id: usize, error: String },
     /// Entire copy operation finished.

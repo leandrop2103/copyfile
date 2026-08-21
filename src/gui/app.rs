@@ -278,9 +278,12 @@ impl CopyFileApp {
                     }
                     self.copied_files_count += 1;
                 }
-                CopyEvent::FileSkipped { id, reason } => {
+                CopyEvent::FileSkipped { id, reason, hash } => {
                     if let Some(entry) = self.entries.get_mut(id) {
                         entry.status = FileStatus::Skipped { reason };
+                        if let Some(h) = hash {
+                            entry.hash = Some(h);
+                        }
                     }
                     self.skipped_files_count += 1;
                 }
