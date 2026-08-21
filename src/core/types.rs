@@ -163,7 +163,7 @@ impl OverwritePolicy {
     }
 }
 
-/// Transfer mode: either standard copy or safe move (delete source only after xxHash3 verification).
+/// Transfer mode: standard copy, safe move, or mirror synchronization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransferMode {
     /// Copies files and preserves the originals in source directory.
@@ -171,13 +171,15 @@ pub enum TransferMode {
     Copy,
     /// Moves files: safely deletes the source file only after 100% verified destination copy.
     Move,
+    /// Mirror synchronization: copies new/updated files and deletes orphan files from destination.
+    Sync,
 }
 
 impl TransferMode {
     /// List all available transfer modes.
     #[must_use]
-    pub const fn all() -> [Self; 2] {
-        [Self::Copy, Self::Move]
+    pub const fn all() -> [Self; 3] {
+        [Self::Copy, Self::Move, Self::Sync]
     }
 
     /// User-facing label in Portuguese.
@@ -186,6 +188,7 @@ impl TransferMode {
         match self {
             Self::Copy => "Copiar (Manter Origens)",
             Self::Move => "Mover / Recortar Seguro",
+            Self::Sync => "Sincronizar (Espelho / Mirror)",
         }
     }
 }

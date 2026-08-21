@@ -190,6 +190,40 @@ impl CopyFileApp {
                 total_bytes,
             });
 
+            // In Mirror Sync mode, remove orphan/obsolete files from destination
+            if config.transfer_mode == crate::core::types::TransferMode::Sync {
+                let orphans = crate::core::scanner::find_mirror_orphan_entries(
+                    &sources,
+                    &dest,
+                    &scanned_entries,
+                );
+                if !orphans.is_empty() {
+                    let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
+                        LogLevel::Info,
+                        None,
+                        format!(
+                            "Modo Espelho: removendo {} item(ns) obsoleto(s) do destino...",
+                            orphans.len()
+                        ),
+                    )));
+                    for orphan in orphans {
+                        let is_dir = orphan.is_dir();
+                        let res = if is_dir {
+                            std::fs::remove_dir_all(&orphan)
+                        } else {
+                            std::fs::remove_file(&orphan)
+                        };
+                        if res.is_ok() {
+                            let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
+                                LogLevel::Info,
+                                None,
+                                format!("Item obsoleto removido: {}", orphan.display()),
+                            )));
+                        }
+                    }
+                }
+            }
+
             if !scanned_entries.is_empty() {
                 run_copy_batch(scanned_entries, config, controller, event_tx);
             } else {
@@ -197,6 +231,62 @@ impl CopyFileApp {
                     total_duration: Duration::ZERO,
                 });
             }
+        });
+    }
+
+    /// Retries copying only the files that previously failed with an error.
+    pub fn retry_failed_files(&mut self) {
+        if self.is_running {
+            return;
+        }
+
+        let failed_indices: Vec<usize> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, e)| match e.status {
+                FileStatus::Error { .. } => Some(idx),
+                _ => None,
+            })
+            .collect();
+
+        if failed_indices.is_empty() {
+            return;
+        }
+
+        let mut retry_entries = Vec::new();
+
+        for &idx in &failed_indices {
+            if let Some(entry) = self.entries.get_mut(idx) {
+                entry.status = FileStatus::Pending;
+                retry_entries.push(entry.clone());
+            }
+        }
+
+        self.error_files_count = 0;
+        self.is_running = true;
+        self.is_paused = false;
+        self.show_completion_modal = false;
+        self.controller = CopyController::new();
+        self.start_time = Some(Instant::now());
+        self.last_speed_sample = Instant::now();
+        self.bytes_since_last_sample = 0;
+
+        let config = self.config.clone();
+        let controller = self.controller.clone();
+        let event_tx = self.event_tx.clone();
+
+        self.logs.push(LogEntry::new(
+            LogLevel::Info,
+            None,
+            format!(
+                "Iniciando reprocessamento de {} arquivo(s) que falharam anteriormente...",
+                retry_entries.len()
+            ),
+        ));
+
+        std::thread::spawn(move || {
+            run_copy_batch(retry_entries, config, controller, event_tx);
         });
     }
 
@@ -643,13 +733,19 @@ impl eframe::App for CopyFileApp {
         // --- Main Central Body ---
         CentralPanel::default().show(ctx, |ui| match self.active_tab {
             AppTab::FileList => {
+                let mut retry_requested = false;
                 render_file_list(
                     ui,
                     &self.entries,
                     &mut self.list_filter,
                     &mut self.search_query,
                     &mut self.auto_scroll,
+                    self.is_running,
+                    || retry_requested = true,
                 );
+                if retry_requested {
+                    self.retry_failed_files();
+                }
             }
             AppTab::Logs => {
                 let mut logs_cleared = false;
@@ -711,6 +807,7 @@ impl eframe::App for CopyFileApp {
             let total_folders = self.calculate_total_folders();
             let mode_name = self.config.transfer_mode.label();
             let mut switch_to_logs = false;
+            let mut retry_requested = false;
 
             render_completion_modal(
                 ctx,
@@ -727,10 +824,14 @@ impl eframe::App for CopyFileApp {
                 self.destination.as_ref(),
                 &self.entries,
                 || switch_to_logs = true,
+                || retry_requested = true,
             );
 
             if switch_to_logs {
                 self.active_tab = AppTab::Logs;
+            }
+            if retry_requested {
+                self.retry_failed_files();
             }
         }
     }

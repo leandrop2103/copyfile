@@ -424,15 +424,10 @@ pub fn render_header(
             ui.horizontal(|ui| {
                 if !is_running {
                     let can_start = !sources.is_empty() && destination.is_some();
-                    let start_label = if config.transfer_mode == crate::core::types::TransferMode::Move {
-                        "▶ MOVER (RECORTAR)"
-                    } else {
-                        "▶ INICIAR CÓPIA"
-                    };
-                    let start_color = if config.transfer_mode == crate::core::types::TransferMode::Move {
-                        Color32::from_rgb(217, 119, 6) // Amber/Orange for move
-                    } else {
-                        COLOR_SUCCESS
+                    let (start_label, start_color) = match config.transfer_mode {
+                        crate::core::types::TransferMode::Copy => ("▶ INICIAR CÓPIA", COLOR_SUCCESS),
+                        crate::core::types::TransferMode::Move => ("▶ MOVER (RECORTAR)", Color32::from_rgb(217, 119, 6)),
+                        crate::core::types::TransferMode::Sync => ("▶ SINCRONIZAR (ESPELHO)", Color32::from_rgb(14, 165, 233)),
                     };
                     let start_btn = egui::Button::new(
                         RichText::new(start_label)

@@ -23,6 +23,8 @@ pub fn render_file_list(
     filter: &mut ListFilter,
     search_query: &mut String,
     auto_scroll: &mut bool,
+    is_running: bool,
+    on_retry_failed: impl FnOnce(),
 ) {
     // Count items by status
     let total_count = entries.len();
@@ -70,13 +72,32 @@ pub fn render_file_list(
                 .color(COLOR_ERROR),
         );
 
+        if !is_running && error_count > 0 {
+            ui.add_space(8.0);
+            let retry_btn = egui::Button::new(
+                RichText::new(format!("🔁 Tentar Novamente com Falhas ({error_count})"))
+                    .size(13.5)
+                    .strong()
+                    .color(eframe::egui::Color32::WHITE),
+            )
+            .fill(COLOR_ERROR);
+
+            if ui
+                .add(retry_btn)
+                .on_hover_text("Reprocessar apenas os arquivos que apresentaram erro")
+                .clicked()
+            {
+                on_retry_failed();
+            }
+        }
+
         ui.separator();
 
         ui.label(RichText::new("🔍").size(15.0));
         ui.add(
             egui::TextEdit::singleline(search_query)
                 .hint_text("Buscar por nome de arquivo...")
-                .desired_width(220.0),
+                .desired_width(200.0),
         );
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

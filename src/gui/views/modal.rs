@@ -4,7 +4,7 @@ use crate::core::exporter::{export_csv_report, export_html_report};
 use crate::core::types::FileEntry;
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
 use crate::gui::views::header::{format_bytes, format_duration};
-use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Ui, Vec2};
+use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -25,6 +25,7 @@ pub fn render_completion_modal(
     destination: Option<&PathBuf>,
     entries: &[FileEntry],
     on_open_logs: impl FnOnce(),
+    on_retry_errors: impl FnOnce(),
 ) {
     if !*is_open {
         return;
@@ -32,111 +33,150 @@ pub fn render_completion_modal(
 
     let mut open_logs_requested = false;
     let mut open_folder_requested = false;
+    let mut retry_errors_requested = false;
 
     egui::Window::new("🎉 Transferência Concluída!")
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .frame(
-            egui::Frame::NONE
-                .fill(Color32::from_rgb(15, 23, 42)) // Slate 900
-                .stroke(Stroke::new(2.0_f32, Color32::from_rgb(16, 185, 129))) // Emerald border
+            egui::Frame::window(&ctx.style())
+                .fill(Color32::from_rgb(15, 23, 42))
+                .stroke(Stroke::new(1.5_f32, Color32::from_rgb(51, 65, 85)))
                 .corner_radius(CornerRadius::same(12))
                 .inner_margin(egui::Margin::same(24)),
         )
         .show(ctx, |ui| {
-            ui.set_min_width(520.0);
+            ui.set_width(520.0);
 
             // Modal Header
             ui.vertical_centered(|ui| {
+                let icon = if error_files > 0 { "⚠" } else { "🎉" };
+                let header_title = if error_files > 0 {
+                    "Transferência Concluída com Alertas"
+                } else {
+                    "Transferência Finalizada com Sucesso!"
+                };
+                let header_color = if error_files > 0 {
+                    COLOR_WARNING
+                } else {
+                    COLOR_SUCCESS
+                };
+
                 ui.label(
-                    RichText::new("✔ Operação Concluída com Sucesso!")
+                    RichText::new(format!("{icon} {header_title}"))
                         .size(20.0)
                         .strong()
-                        .color(COLOR_SUCCESS),
+                        .color(header_color),
                 );
-                ui.add_space(2.0);
+                ui.add_space(4.0);
                 ui.label(
-                    RichText::new(format!("Resumo da operação: {transfer_mode_name}"))
-                        .size(14.0)
-                        .color(COLOR_MUTED),
+                    RichText::new(format!("Modo de operação: {transfer_mode_name}"))
+                        .size(13.5)
+                        .color(Color32::from_rgb(148, 163, 184)),
                 );
             });
 
             ui.add_space(14.0);
-            ui.separator();
-            ui.add_space(14.0);
 
-            // Statistics Grid Cards
+            // Detailed Statistics Grid Card
             egui::Frame::NONE
                 .fill(Color32::from_rgb(24, 33, 47))
                 .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
                 .corner_radius(CornerRadius::same(8))
-                .inner_margin(egui::Margin::same(14))
+                .inner_margin(egui::Margin::same(16))
                 .show(ui, |ui| {
-                    ui.columns(2, |cols| {
-                        // Left Column
-                        cols[0].vertical(|ui| {
-                            render_stat_row(
-                                ui,
-                                "📁 Pastas Processadas:",
-                                &format!("{total_folders}"),
-                                COLOR_ACCENT,
+                    egui::Grid::new("completion_modal_grid")
+                        .num_columns(2)
+                        .spacing([32.0, 10.0])
+                        .show(ui, |ui| {
+                            // Row 1: Volume
+                            ui.label(
+                                RichText::new("📦 Volume Total:")
+                                    .size(13.5)
+                                    .color(COLOR_MUTED),
                             );
-                            ui.add_space(8.0);
-                            render_stat_row(
-                                ui,
-                                "📄 Arquivos Copiados:",
-                                &format!("{copied_files} de {total_files}"),
-                                COLOR_SUCCESS,
-                            );
-                            ui.add_space(8.0);
-                            render_stat_row(
-                                ui,
-                                "⏭ Arquivos Ignorados:",
-                                &format!("{skipped_files}"),
-                                COLOR_WARNING,
-                            );
-                            ui.add_space(8.0);
-                            render_stat_row(
-                                ui,
-                                "❌ Erros Encontrados:",
-                                &format!("{error_files}"),
-                                if error_files > 0 {
-                                    COLOR_ERROR
-                                } else {
-                                    COLOR_MUTED
-                                },
-                            );
-                        });
+                            ui.label(RichText::new(format_bytes(total_bytes)).size(13.5).strong());
+                            ui.end_row();
 
-                        // Right Column
-                        cols[1].vertical(|ui| {
-                            render_stat_row(
-                                ui,
-                                "💾 Volume Total:",
-                                &format_bytes(total_bytes),
-                                Color32::WHITE,
+                            // Row 2: Total Files & Folders
+                            ui.label(
+                                RichText::new("📁 Pastas / Arquivos:")
+                                    .size(13.5)
+                                    .color(COLOR_MUTED),
                             );
-                            ui.add_space(8.0);
-                            render_stat_row(
-                                ui,
-                                "⏱ Tempo Total:",
-                                &format_duration(elapsed),
-                                COLOR_ACCENT,
+                            ui.label(
+                                RichText::new(format!(
+                                    "{total_folders} pastas / {total_files} arquivos"
+                                ))
+                                .size(13.5)
+                                .strong(),
                             );
-                            ui.add_space(8.0);
-                            let speed_str = format!("{}/s", format_bytes(average_speed_bps as u64));
-                            render_stat_row(ui, "⚡ Velocidade Média:", &speed_str, COLOR_SUCCESS);
-                            ui.add_space(8.0);
-                            render_stat_row(
-                                ui,
-                                "🛡 Integridade:",
-                                "100% xxHash3",
-                                Color32::from_rgb(52, 211, 153),
+                            ui.end_row();
+
+                            // Row 3: Copied Successfully
+                            ui.label(
+                                RichText::new("✔ Copiados / Processados:")
+                                    .size(13.5)
+                                    .color(COLOR_MUTED),
                             );
+                            ui.label(
+                                RichText::new(format!("{copied_files} itens"))
+                                    .size(13.5)
+                                    .strong()
+                                    .color(COLOR_SUCCESS),
+                            );
+                            ui.end_row();
+
+                            // Row 4: Skipped
+                            if skipped_files > 0 {
+                                ui.label(
+                                    RichText::new("⏭ Ignorados (Existentes):")
+                                        .size(13.5)
+                                        .color(COLOR_MUTED),
+                                );
+                                ui.label(
+                                    RichText::new(format!("{skipped_files} itens"))
+                                        .size(13.5)
+                                        .color(COLOR_WARNING),
+                                );
+                                ui.end_row();
+                            }
+
+                            // Row 5: Errors
+                            if error_files > 0 {
+                                ui.label(
+                                    RichText::new("❌ Falhas na Cópia:")
+                                        .size(13.5)
+                                        .color(COLOR_MUTED),
+                                );
+                                ui.label(
+                                    RichText::new(format!("{error_files} itens com erro"))
+                                        .size(13.5)
+                                        .strong()
+                                        .color(COLOR_ERROR),
+                                );
+                                ui.end_row();
+                            }
+
+                            // Row 6: Duration & Average Speed
+                            ui.label(
+                                RichText::new("⏱ Tempo & Velocidade:")
+                                    .size(13.5)
+                                    .color(COLOR_MUTED),
+                            );
+                            ui.label(
+                                RichText::new(format!(
+                                    "{}  •  {}/s (Média)",
+                                    format_duration(elapsed),
+                                    format_bytes(average_speed_bps as u64)
+                                ))
+                                .size(13.5)
+                                .strong()
+                                .color(COLOR_ACCENT),
+                            );
+                            ui.end_row();
                         });
-                    });
                 });
 
             ui.add_space(14.0);
@@ -196,7 +236,7 @@ pub fn render_completion_modal(
                 if let Some(dst) = destination {
                     let open_btn =
                         egui::Button::new(RichText::new("📂 Abrir Pasta").size(14.0).strong())
-                            .min_size(Vec2::new(140.0, 36.0));
+                            .min_size(Vec2::new(130.0, 36.0));
                     if ui.add(open_btn).clicked() {
                         open_folder_requested = true;
                         let _ = std::process::Command::new("explorer.exe").arg(dst).spawn();
@@ -210,6 +250,21 @@ pub fn render_completion_modal(
                     *is_open = false;
                 }
 
+                if error_files > 0 {
+                    let retry_btn = egui::Button::new(
+                        RichText::new(format!("🔁 Tentar Novamente ({error_files})"))
+                            .size(14.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(COLOR_ERROR)
+                    .min_size(Vec2::new(180.0, 36.0));
+                    if ui.add(retry_btn).clicked() {
+                        retry_errors_requested = true;
+                        *is_open = false;
+                    }
+                }
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let close_btn = egui::Button::new(
                         RichText::new("✔ Concluir")
@@ -218,7 +273,8 @@ pub fn render_completion_modal(
                             .color(Color32::WHITE),
                     )
                     .fill(Color32::from_rgb(16, 185, 129))
-                    .min_size(Vec2::new(100.0, 36.0));
+                    .min_size(Vec2::new(110.0, 36.0));
+
                     if ui.add(close_btn).clicked() {
                         *is_open = false;
                     }
@@ -229,20 +285,10 @@ pub fn render_completion_modal(
     if open_logs_requested {
         on_open_logs();
     }
+    if retry_errors_requested {
+        on_retry_errors();
+    }
     let _ = open_folder_requested;
-}
-
-fn render_stat_row(ui: &mut Ui, label: &str, value: &str, color: Color32) {
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(label)
-                .size(13.5)
-                .color(Color32::from_rgb(148, 163, 184)),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(RichText::new(value).size(13.5).strong().color(color));
-        });
-    });
 }
 
 /// Renders the Source Folders & Files manager modal dialog.

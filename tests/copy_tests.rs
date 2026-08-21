@@ -328,3 +328,69 @@ fn test_transfer_queue_management() {
     queue.remove_job(id2);
     assert_eq!(queue.waiting_count(), 0);
 }
+
+#[test]
+fn test_mirror_sync_mode() {
+    use copyfile::core::scanner::find_mirror_orphan_entries;
+    use copyfile::core::TransferMode;
+
+    let (src, dst) = setup_temp_dir("mirror_sync");
+
+    // Source files: file_a.txt and file_b.txt
+    let file_a = src.join("file_a.txt");
+    let file_b = src.join("file_b.txt");
+    fs::write(&file_a, "File A Content").unwrap();
+    fs::write(&file_b, "File B Content").unwrap();
+
+    // Destination target subtree already has file_a.txt (same) and orphan.txt (obsolete)
+    let dst_src_folder = dst.join("src");
+    fs::create_dir_all(&dst_src_folder).unwrap();
+
+    let dst_file_a = dst_src_folder.join("file_a.txt");
+    let dst_orphan = dst_src_folder.join("orphan.txt");
+    fs::write(&dst_file_a, "File A Content").unwrap();
+    fs::write(&dst_orphan, "Obsolete Orphan Content").unwrap();
+
+    let (entries, _total_bytes) = scan_sources(std::slice::from_ref(&src), &dst);
+    assert_eq!(entries.len(), 2);
+
+    let orphans = find_mirror_orphan_entries(std::slice::from_ref(&src), &dst, &entries);
+    assert_eq!(orphans.len(), 1);
+    assert_eq!(orphans[0], dst_orphan);
+
+    // Delete orphans as done in Mirror Sync
+    for orphan in &orphans {
+        let _ = fs::remove_file(orphan);
+    }
+
+    assert!(!dst_orphan.exists());
+
+    let (tx, rx) = unbounded();
+    let controller = CopyController::new();
+    let config = CopyConfig {
+        transfer_mode: TransferMode::Sync,
+        verify_checksum: true,
+        ignore_errors: true,
+        preserve_metadata: true,
+        overwrite_policy: OverwritePolicy::Always,
+        num_threads: 2,
+        buffer_size_kb: 256,
+        ..Default::default()
+    };
+
+    run_copy_batch(entries, config, controller, tx);
+
+    let mut completed = 0;
+    while let Ok(event) = rx.recv() {
+        if let CopyEvent::FileCompleted { .. } = event {
+            completed += 1;
+        }
+    }
+
+    assert_eq!(completed, 2);
+
+    let dst_file_b = dst_src_folder.join("file_b.txt");
+    assert!(dst_file_a.exists());
+    assert!(dst_file_b.exists());
+    assert!(!dst_orphan.exists());
+}

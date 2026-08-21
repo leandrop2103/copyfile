@@ -133,3 +133,66 @@ fn scan_dir_recursive(
         }
     }
 }
+
+/// Identifies orphan files and empty directories in the destination that do not exist in the sources list.
+/// Used specifically for `TransferMode::Sync` (Mirror mode).
+#[must_use]
+pub fn find_mirror_orphan_entries(
+    sources: &[PathBuf],
+    dest_root: &Path,
+    scanned_entries: &[FileEntry],
+) -> Vec<PathBuf> {
+    use std::collections::HashSet;
+
+    let valid_dest_paths: HashSet<&Path> = scanned_entries
+        .iter()
+        .map(|e| e.dest_path.as_path())
+        .collect();
+
+    let mut orphans = Vec::new();
+
+    for src in sources {
+        if !src.exists() {
+            continue;
+        }
+        let folder_name = src.file_name().unwrap_or_default();
+        let target_dest = dest_root.join(folder_name);
+
+        if target_dest.exists() && target_dest.is_dir() {
+            scan_dest_orphans_recursive(&target_dest, &valid_dest_paths, &mut orphans);
+        }
+    }
+
+    orphans
+}
+
+fn scan_dest_orphans_recursive(
+    current_dir: &Path,
+    valid_dest_paths: &std::collections::HashSet<&Path>,
+    orphans: &mut Vec<PathBuf>,
+) {
+    let read_dir = match fs::read_dir(current_dir) {
+        Ok(rd) => rd,
+        Err(_) => return,
+    };
+
+    for entry_res in read_dir {
+        let entry = match entry_res {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        let is_dir = entry.file_type().is_ok_and(|ft| ft.is_dir());
+
+        if is_dir {
+            scan_dest_orphans_recursive(&path, valid_dest_paths, orphans);
+            // Check if directory became empty
+            if fs::read_dir(&path).is_ok_and(|mut rd| rd.next().is_none()) {
+                orphans.push(path);
+            }
+        } else if !valid_dest_paths.contains(path.as_path()) {
+            orphans.push(path);
+        }
+    }
+}
