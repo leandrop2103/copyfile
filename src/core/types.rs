@@ -211,6 +211,10 @@ pub struct CopyConfig {
     pub overwrite_policy: OverwritePolicy,
     /// Post-copy action to execute on completion.
     pub post_action: PostCopyAction,
+    /// Whether to send Windows Toast notifications upon completion.
+    pub enable_notifications: bool,
+    /// Whether to play a notification sound upon completion.
+    pub enable_sound: bool,
 }
 
 impl Default for CopyConfig {
@@ -227,6 +231,8 @@ impl Default for CopyConfig {
             direct_io: true,
             overwrite_policy: OverwritePolicy::IfNewer,
             post_action: PostCopyAction::None,
+            enable_notifications: true,
+            enable_sound: true,
         }
     }
 }

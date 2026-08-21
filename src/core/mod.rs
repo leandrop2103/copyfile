@@ -2,9 +2,12 @@
 
 pub mod copier;
 pub mod disk;
+pub mod exporter;
 pub mod hasher;
 pub mod metadata;
+pub mod notify;
 pub mod profiles;
+pub mod queue;
 pub mod scanner;
 pub mod shell;
 pub mod taskbar;

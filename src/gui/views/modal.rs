@@ -1,5 +1,7 @@
 //! Completion statistics modal dialog.
 
+use crate::core::exporter::{export_csv_report, export_html_report};
+use crate::core::types::FileEntry;
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
 use crate::gui::views::header::{format_bytes, format_duration};
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Ui, Vec2};
@@ -21,6 +23,7 @@ pub fn render_completion_modal(
     elapsed: Duration,
     average_speed_bps: f64,
     destination: Option<&PathBuf>,
+    entries: &[FileEntry],
     on_open_logs: impl FnOnce(),
 ) {
     if !*is_open {
@@ -42,7 +45,7 @@ pub fn render_completion_modal(
                 .inner_margin(egui::Margin::same(24)),
         )
         .show(ctx, |ui| {
-            ui.set_min_width(480.0);
+            ui.set_min_width(520.0);
 
             // Modal Header
             ui.vertical_centered(|ui| {
@@ -136,17 +139,64 @@ pub fn render_completion_modal(
                     });
                 });
 
-            ui.add_space(18.0);
+            ui.add_space(14.0);
+
+            // Export Audit Reports Row
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new("📄 Relatórios de Auditoria:")
+                        .size(13.0)
+                        .color(COLOR_MUTED),
+                );
+
+                if ui
+                    .button(RichText::new("🌐 Exportar HTML").size(12.5).strong())
+                    .on_hover_text("Salva relatório interativo com busca e hashes xxHash3")
+                    .clicked()
+                {
+                    if let Some(save_path) = rfd::FileDialog::new()
+                        .set_file_name("relatorio_backup.html")
+                        .add_filter("Página HTML", &["html"])
+                        .save_file()
+                    {
+                        let _ = export_html_report(
+                            &save_path,
+                            entries,
+                            transfer_mode_name,
+                            elapsed,
+                            total_bytes,
+                            copied_files,
+                            skipped_files,
+                            error_files,
+                        );
+                    }
+                }
+
+                if ui
+                    .button(RichText::new("📊 Exportar CSV").size(12.5).strong())
+                    .on_hover_text("Salva planilha CSV compatível com Excel")
+                    .clicked()
+                {
+                    if let Some(save_path) = rfd::FileDialog::new()
+                        .set_file_name("relatorio_backup.csv")
+                        .add_filter("Arquivo CSV", &["csv"])
+                        .save_file()
+                    {
+                        let _ = export_csv_report(&save_path, entries);
+                    }
+                }
+            });
+
+            ui.add_space(14.0);
+            ui.separator();
+            ui.add_space(14.0);
 
             // Modal Action Buttons
             ui.horizontal(|ui| {
                 if let Some(dst) = destination {
-                    let open_btn = egui::Button::new(
-                        RichText::new("📂 Abrir Pasta de Destino")
-                            .size(14.0)
-                            .strong(),
-                    )
-                    .min_size(Vec2::new(170.0, 36.0));
+                    let open_btn =
+                        egui::Button::new(RichText::new("📂 Abrir Pasta").size(14.0).strong())
+                            .min_size(Vec2::new(140.0, 36.0));
                     if ui.add(open_btn).clicked() {
                         open_folder_requested = true;
                         let _ = std::process::Command::new("explorer.exe").arg(dst).spawn();
@@ -162,7 +212,7 @@ pub fn render_completion_modal(
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let close_btn = egui::Button::new(
-                        RichText::new("✔ Fechar")
+                        RichText::new("✔ Concluir")
                             .size(14.0)
                             .strong()
                             .color(Color32::WHITE),

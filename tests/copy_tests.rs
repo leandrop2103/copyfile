@@ -222,3 +222,109 @@ fn test_safe_move_mode() {
     // Source must have been safely deleted
     assert!(!file_src.exists());
 }
+
+#[test]
+fn test_export_csv_and_html_reports() {
+    use copyfile::core::exporter::{export_csv_report, export_html_report};
+    use copyfile::core::types::{FileEntry, FileStatus};
+    use std::time::Duration;
+
+    let (src, dst) = setup_temp_dir("reports");
+    let entries = vec![
+        FileEntry {
+            id: 0,
+            source_path: src.join("doc1.pdf"),
+            dest_path: dst.join("doc1.pdf"),
+            relative_path: PathBuf::from("doc1.pdf"),
+            is_dir: false,
+            size: 1024 * 1024 * 5, // 5 MB
+            status: FileStatus::Success {
+                hash: "xxh3:abcdef1234567890".to_string(),
+                duration_ms: 45,
+            },
+            hash: Some("xxh3:abcdef1234567890".to_string()),
+            attributes: "-a-".to_string(),
+            created_time: None,
+            modified_time: None,
+        },
+        FileEntry {
+            id: 1,
+            source_path: src.join("doc2.txt"),
+            dest_path: dst.join("doc2.txt"),
+            relative_path: PathBuf::from("doc2.txt"),
+            is_dir: false,
+            size: 512,
+            status: FileStatus::Skipped {
+                reason: "Arquivo já existe e é idêntico".to_string(),
+            },
+            hash: None,
+            attributes: "-a-".to_string(),
+            created_time: None,
+            modified_time: None,
+        },
+    ];
+
+    let html_path = dst.join("relatorio.html");
+    let csv_path = dst.join("relatorio.csv");
+
+    export_html_report(
+        &html_path,
+        &entries,
+        "Copiar (Manter Origens)",
+        Duration::from_secs(2),
+        5 * 1024 * 1024 + 512,
+        1,
+        1,
+        0,
+    )
+    .unwrap();
+
+    export_csv_report(&csv_path, &entries).unwrap();
+
+    assert!(html_path.exists());
+    assert!(csv_path.exists());
+
+    let html_content = fs::read_to_string(&html_path).unwrap();
+    assert!(html_content.contains("xxHash3 (100% Validado)"));
+    assert!(html_content.contains("doc1.pdf"));
+
+    let csv_bytes = fs::read(&csv_path).unwrap();
+    // Validate UTF-8 BOM
+    assert_eq!(&csv_bytes[0..3], &[0xEF, 0xBB, 0xBF]);
+    let csv_content = String::from_utf8_lossy(&csv_bytes[3..]);
+    assert!(csv_content.contains("\"Concluído\""));
+    assert!(csv_content.contains("\"Ignorado\""));
+}
+
+#[test]
+fn test_transfer_queue_management() {
+    use copyfile::core::queue::{QueueStatus, TransferQueue};
+
+    let mut queue = TransferQueue::new();
+    assert_eq!(queue.waiting_count(), 0);
+
+    let id1 = queue.enqueue(
+        vec![PathBuf::from("C:\\pasta1")],
+        PathBuf::from("D:\\backup"),
+        CopyConfig::default(),
+    );
+    let id2 = queue.enqueue(
+        vec![PathBuf::from("C:\\pasta2")],
+        PathBuf::from("D:\\backup"),
+        CopyConfig::default(),
+    );
+
+    assert_eq!(queue.waiting_count(), 2);
+    assert_eq!(queue.jobs().len(), 2);
+
+    let next = queue.start_next_job().unwrap();
+    assert_eq!(next.id, id1);
+    assert_eq!(next.status, QueueStatus::Running);
+    assert_eq!(queue.waiting_count(), 1);
+
+    queue.mark_completed(id1);
+    assert_eq!(queue.jobs()[0].status, QueueStatus::Completed);
+
+    queue.remove_job(id2);
+    assert_eq!(queue.waiting_count(), 0);
+}

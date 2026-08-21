@@ -104,6 +104,24 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
 
                     ui.add_space(10.0);
 
+                    // Group 5: Notifications & Audio Chimes
+                    ui.group(|ui| {
+                        ui.label(RichText::new("🔔 Notificações e Alertas Sonoros").strong().size(16.0));
+                        ui.add_space(6.0);
+
+                        ui.checkbox(
+                            &mut config.enable_notifications,
+                            RichText::new("Exibir notificação nativa do Windows (Toast) ao concluir").size(13.5),
+                        );
+                        ui.add_space(4.0);
+                        ui.checkbox(
+                            &mut config.enable_sound,
+                            RichText::new("Tocar som de alerta discreto ao finalizar a transferência").size(13.5),
+                        );
+                    });
+
+                    ui.add_space(10.0);
+
                     // Group 5: Windows Context Menu Integration
                     ui.group(|ui| {
                         ui.label(RichText::new("🖱 Integração com Windows Explorer").strong().size(16.0));

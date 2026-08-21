@@ -1,11 +1,10 @@
-//! Transfer statistics, performance metrics, and benchmark view.
-
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING};
 use crate::gui::views::header::{format_bytes, format_duration};
+use crate::gui::views::speed_graph::{render_speed_graph, SpeedHistory};
 use eframe::egui::{Color32, Grid, RichText, Ui};
 use std::time::Duration;
 
-/// Renders the real-time statistics and summary panel.
+/// Renders the real-time statistics and summary panel with interactive speed graph.
 #[allow(clippy::too_many_arguments)]
 pub fn render_stats(
     ui: &mut Ui,
@@ -19,8 +18,25 @@ pub fn render_stats(
     average_speed_bps: f64,
     elapsed: Duration,
     eta: Option<Duration>,
+    speed_history: &SpeedHistory,
 ) {
     ui.add_space(8.0);
+
+    // --- Real-Time Speed Graph ---
+    ui.label(
+        RichText::new("📈 Histórico de Velocidade em Tempo Real (MB/s)")
+            .strong()
+            .size(15.0),
+    );
+    ui.add_space(4.0);
+    render_speed_graph(
+        ui,
+        speed_history,
+        current_speed_bps,
+        average_speed_bps,
+        160.0,
+    );
+    ui.add_space(14.0);
 
     // --- Cards Grid ---
     Grid::new("stats_grid")

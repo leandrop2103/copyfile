@@ -1,6 +1,5 @@
-//! Main application state and eframe event loop.
-
 use crate::core::copier::{run_copy_batch, CopyController};
+use crate::core::queue::TransferQueue;
 use crate::core::scanner::scan_sources;
 use crate::core::types::{
     CopyConfig, CopyEvent, FileEntry, FileStatus, LogEntry, LogLevel, PostCopyAction,
@@ -8,7 +7,7 @@ use crate::core::types::{
 use crate::gui::theme::configure_theme;
 use crate::gui::views::{
     render_completion_modal, render_file_list, render_header, render_logs, render_options,
-    render_stats, ListFilter, LogFilter,
+    render_queue_view, render_stats, ListFilter, LogFilter, SpeedHistory,
 };
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, CentralPanel, TopBottomPanel};
@@ -21,6 +20,7 @@ pub enum AppTab {
     #[default]
     FileList,
     Logs,
+    Queue,
     Options,
     Stats,
 }
@@ -72,6 +72,13 @@ pub struct CopyFileApp {
     search_query: String,
     auto_scroll: bool,
 
+    // Performance Speed History
+    speed_history: SpeedHistory,
+
+    // Transfer Queue
+    transfer_queue: TransferQueue,
+    active_job_id: Option<usize>,
+
     // Windows Taskbar Progress & Modals
     taskbar: crate::core::taskbar::TaskbarProgress,
     hwnd: isize,
@@ -110,6 +117,9 @@ impl Default for CopyFileApp {
             average_speed_bps: 0.0,
             elapsed_time: Duration::ZERO,
             eta: None,
+            speed_history: SpeedHistory::default(),
+            transfer_queue: TransferQueue::default(),
+            active_job_id: None,
             active_tab: AppTab::FileList,
             list_filter: ListFilter::All,
             log_filter: LogFilter::All,
@@ -232,6 +242,22 @@ impl CopyFileApp {
         }
     }
 
+    /// Enqueues the currently selected sources and destination into the transfer queue.
+    pub fn enqueue_current_selection(&mut self) {
+        if let Some(dest) = self.destination.clone() {
+            if !self.sources.is_empty() {
+                let id =
+                    self.transfer_queue
+                        .enqueue(self.sources.clone(), dest, self.config.clone());
+                self.logs.push(LogEntry::new(
+                    LogLevel::Info,
+                    None,
+                    format!("Lote de transferência enfileirado com sucesso (ID #{id})."),
+                ));
+            }
+        }
+    }
+
     /// Processes incoming events from background copy worker threads.
     fn handle_events(&mut self) {
         while let Ok(event) = self.event_rx.try_recv() {
@@ -333,6 +359,23 @@ impl CopyFileApp {
                     self.current_file_total = 0;
                     self.processed_bytes = self.total_bytes;
                     self.show_completion_modal = true;
+
+                    // Send Windows Native Notification & Sound Alert
+                    if self.config.enable_notifications {
+                        let vol_str = crate::gui::views::header::format_bytes(self.total_bytes);
+                        let time_str = crate::gui::views::header::format_duration(total_duration);
+                        let mode_label = self.config.transfer_mode.label();
+                        let msg = format!(
+                            "{mode_label} concluído!\n{} arquivos transferidos ({vol_str}) em {time_str}.",
+                            self.copied_files_count
+                        );
+                        crate::core::notify::send_completion_notification(
+                            "⚡ CopyFile",
+                            &msg,
+                            self.config.enable_sound,
+                        );
+                    }
+
                     self.logs.push(LogEntry::new(
                         LogLevel::Success,
                         None,
@@ -349,6 +392,20 @@ impl CopyFileApp {
                         self.config.post_action,
                         self.destination.as_ref(),
                     );
+
+                    // Mark active queue job completed and start next if available
+                    if let Some(job_id) = self.active_job_id {
+                        self.transfer_queue.mark_completed(job_id);
+                        self.active_job_id = None;
+                    }
+
+                    if let Some(next_job) = self.transfer_queue.start_next_job().cloned() {
+                        self.sources = next_job.sources;
+                        self.destination = Some(next_job.destination);
+                        self.config = next_job.config;
+                        self.active_job_id = Some(next_job.id);
+                        self.start_copy();
+                    }
                 }
                 CopyEvent::Log(log_entry) => {
                     self.logs.push(log_entry);
@@ -365,6 +422,7 @@ impl CopyFileApp {
                 if sample_elapsed >= Duration::from_millis(250) {
                     let secs = sample_elapsed.as_secs_f64();
                     self.current_speed_bps = self.bytes_since_last_sample as f64 / secs;
+                    self.speed_history.push(self.current_speed_bps);
                     self.bytes_since_last_sample = 0;
                     self.last_speed_sample = Instant::now();
 
@@ -572,9 +630,11 @@ impl eframe::App for CopyFileApp {
             ui.horizontal(|ui| {
                 let list_title = format!("📑 Lista de Arquivos ({})", self.entries.len());
                 let logs_title = format!("📜 Registro / Log ({})", self.logs.len());
+                let queue_title = format!("🗂 Fila ({})", self.transfer_queue.waiting_count());
 
                 ui.selectable_value(&mut self.active_tab, AppTab::FileList, list_title);
                 ui.selectable_value(&mut self.active_tab, AppTab::Logs, logs_title);
+                ui.selectable_value(&mut self.active_tab, AppTab::Queue, queue_title);
                 ui.selectable_value(&mut self.active_tab, AppTab::Options, "⚙ Opções");
                 ui.selectable_value(&mut self.active_tab, AppTab::Stats, "📊 Estatísticas");
             });
@@ -600,6 +660,20 @@ impl eframe::App for CopyFileApp {
                     self.logs.clear();
                 }
             }
+            AppTab::Queue => {
+                let mut enqueue_requested = false;
+                render_queue_view(
+                    ui,
+                    &mut self.transfer_queue,
+                    self.is_running,
+                    &self.sources,
+                    &self.destination,
+                    || enqueue_requested = true,
+                );
+                if enqueue_requested {
+                    self.enqueue_current_selection();
+                }
+            }
             AppTab::Options => {
                 render_options(ui, &mut self.config, self.is_running);
             }
@@ -616,6 +690,7 @@ impl eframe::App for CopyFileApp {
                     self.average_speed_bps,
                     self.elapsed_time,
                     self.eta,
+                    &self.speed_history,
                 );
             }
         });
@@ -650,6 +725,7 @@ impl eframe::App for CopyFileApp {
                 self.elapsed_time,
                 self.average_speed_bps,
                 self.destination.as_ref(),
+                &self.entries,
                 || switch_to_logs = true,
             );
 
