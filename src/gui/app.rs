@@ -630,7 +630,7 @@ impl eframe::App for CopyFileApp {
             ui.horizontal(|ui| {
                 let list_title = format!("📑 Lista de Arquivos ({})", self.entries.len());
                 let logs_title = format!("📜 Registro / Log ({})", self.logs.len());
-                let queue_title = format!("🗂 Fila ({})", self.transfer_queue.waiting_count());
+                let queue_title = format!("📑 Fila ({})", self.transfer_queue.waiting_count());
 
                 ui.selectable_value(&mut self.active_tab, AppTab::FileList, list_title);
                 ui.selectable_value(&mut self.active_tab, AppTab::Logs, logs_title);

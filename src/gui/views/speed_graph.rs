@@ -101,10 +101,10 @@ pub fn render_speed_graph(
 
     let ceiling = max_val * 1.15; // 15% headroom
 
-    let graph_margin_left = 65.0;
-    let graph_margin_right = 16.0;
-    let graph_margin_top = 24.0;
-    let graph_margin_bottom = 24.0;
+    let graph_margin_left = 95.0;
+    let graph_margin_right = 20.0;
+    let graph_margin_top = 46.0;
+    let graph_margin_bottom = 26.0;
 
     let plot_rect = Rect::from_min_max(
         Pos2::new(
@@ -133,10 +133,10 @@ pub fn render_speed_graph(
         // Y-axis Label
         let label = format!("{}/s", format_bytes(speed_at_step as u64));
         painter.text(
-            Pos2::new(plot_rect.min.x - 8.0, y),
+            Pos2::new(plot_rect.min.x - 10.0, y),
             egui::Align2::RIGHT_CENTER,
             label,
-            egui::FontId::proportional(11.0),
+            egui::FontId::proportional(11.5),
             Color32::from_rgb(148, 163, 184),
         );
     }

@@ -20,7 +20,7 @@ pub fn render_queue_view(
     ui.horizontal(|ui| {
         let count = queue.waiting_count();
         ui.label(
-            RichText::new(format!("🗂 Fila de Transferências ({count} aguardando)"))
+            RichText::new(format!("📑 Fila de Transferências ({count} aguardando)"))
                 .strong()
                 .size(16.0),
         );

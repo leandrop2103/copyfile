@@ -10,6 +10,34 @@ pub const COLOR_MUTED: Color32 = Color32::from_rgb(148, 163, 184); // Slate Gray
 
 /// Configures the egui visuals with a modern dark theme and larger, highly legible typography.
 pub fn configure_theme(ctx: &eframe::egui::Context) {
+    #[cfg(windows)]
+    {
+        let mut fonts = eframe::egui::FontDefinitions::default();
+        if let Ok(font_data) = std::fs::read("C:\\Windows\\Fonts\\segoeui.ttf") {
+            fonts.font_data.insert(
+                "segoeui".to_owned(),
+                std::sync::Arc::new(eframe::egui::FontData::from_owned(font_data)),
+            );
+            fonts
+                .families
+                .entry(FontFamily::Proportional)
+                .or_default()
+                .insert(0, "segoeui".to_owned());
+        }
+        if let Ok(emoji_data) = std::fs::read("C:\\Windows\\Fonts\\seguiemj.ttf") {
+            fonts.font_data.insert(
+                "seguiemj".to_owned(),
+                std::sync::Arc::new(eframe::egui::FontData::from_owned(emoji_data)),
+            );
+            fonts
+                .families
+                .entry(FontFamily::Proportional)
+                .or_default()
+                .push("seguiemj".to_owned());
+        }
+        ctx.set_fonts(fonts);
+    }
+
     let mut visuals = Visuals::dark();
     visuals.override_text_color = Some(Color32::from_rgb(241, 245, 249));
     visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(15, 23, 42); // Deep navy/slate

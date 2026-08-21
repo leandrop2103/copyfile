@@ -41,7 +41,7 @@ impl PostCopyAction {
             Self::PlaySound => "🔔 Tocar som de conclusão",
             Self::EjectDisk => "⏏ Ejetar HD de destino com segurança",
             Self::Sleep => "💤 Suspender o computador",
-            Self::Shutdown => "🛑 Desligar o computador",
+            Self::Shutdown => "⛔ Desligar o computador",
         }
     }
 }

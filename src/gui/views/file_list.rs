@@ -157,12 +157,12 @@ pub fn render_file_list(
                 .striped(true)
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .column(Column::exact(45.0)) // Status Icon Only
-                .column(Column::initial(520.0).at_least(240.0)) // Origem / Caminho
-                .column(Column::exact(110.0)) // xxHash
-                .column(Column::exact(95.0)) // Tamanho
-                .column(Column::exact(75.0)) // Atributos
-                .column(Column::initial(320.0).at_least(160.0)); // Detalhes / Motivo
+                .column(Column::exact(36.0)) // Status Icon Only
+                .column(Column::initial(300.0).at_least(140.0)) // Origem / Caminho
+                .column(Column::exact(100.0)) // xxHash
+                .column(Column::exact(85.0)) // Tamanho
+                .column(Column::exact(65.0)) // Atributos
+                .column(Column::initial(200.0).at_least(100.0)); // Detalhes / Motivo
 
             if *auto_scroll {
                 if let Some(active_idx) = active_row_idx {
@@ -173,10 +173,16 @@ pub fn render_file_list(
             table
                 .header(28.0, |mut header| {
                     header.col(|ui| {
-                        ui.strong(RichText::new("St.").size(14.0));
+                        ui.label(
+                            RichText::new("⚡")
+                                .size(14.0)
+                                .color(COLOR_ACCENT)
+                                .strong(),
+                        )
+                        .on_hover_text("Status da transferência (✔ Concluído, ⚡ Copiando, ❌ Erro, ⏭ Ignorado)");
                     });
                     header.col(|ui| {
-                        ui.strong(RichText::new("Arquivo / Caminho de Origem").size(14.0));
+                        ui.strong(RichText::new("Arquivo / Origem").size(14.0));
                     });
                     header.col(|ui| {
                         ui.strong(RichText::new("xxHash3").size(14.0));

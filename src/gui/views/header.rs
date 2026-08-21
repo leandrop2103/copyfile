@@ -87,7 +87,7 @@ pub fn render_header(
                 if !sources.is_empty() {
                     let manage_btn = ui.add(
                         egui::Button::new(
-                            RichText::new(format!("📋 Gerenciar ({}) ▾", sources.len()))
+                            RichText::new(format!("📋 Gerenciar ({})", sources.len()))
                                 .size(13.5)
                                 .color(COLOR_ACCENT)
                                 .strong(),
@@ -162,7 +162,7 @@ pub fn render_header(
                         // Check if other Windows users exist on disk
                         let other_users = list_all_windows_users();
                         if other_users.len() > 1 {
-                            ui.menu_button(RichText::new("👤 Outro Usuário ▼").size(14.0), |ui| {
+                            ui.menu_button(RichText::new("👤 Outro Usuário ▾").size(14.0), |ui| {
                                 for (name, user_path) in &other_users {
                                     if ui.button(format!("👤 Carregar {}", name)).clicked() {
                                         for preset in get_presets_for_user_path(user_path) {
@@ -240,7 +240,7 @@ pub fn render_header(
                     // If more than 3 items, show Dropdown Menu with the rest
                     if sources.len() > 3 {
                         let remaining_count = sources.len() - 3;
-                        let menu_label = format!("📁 +{remaining_count} restantes ▼");
+                        let menu_label = format!("📁 +{remaining_count} restantes ▾");
 
                         ui.menu_button(
                             RichText::new(menu_label)
