@@ -153,19 +153,18 @@ pub fn render_header(
                         // Check if other Windows users exist on disk
                         let other_users = list_all_windows_users();
                         if other_users.len() > 1 {
-                            egui::ComboBox::from_id_salt("other_users_combo")
-                                .selected_text(RichText::new("👤 Outro Usuário").size(13.0))
-                                .show_ui(ui, |ui| {
-                                    for (name, user_path) in &other_users {
-                                        if ui.button(format!("👤 Carregar {}", name)).clicked() {
-                                            for preset in get_presets_for_user_path(user_path) {
-                                                if !sources.contains(&preset.path) {
-                                                    sources.push(preset.path);
-                                                }
+                            ui.menu_button(RichText::new("👤 Outro Usuário ▼").size(14.0), |ui| {
+                                for (name, user_path) in &other_users {
+                                    if ui.button(format!("👤 Carregar {}", name)).clicked() {
+                                        for preset in get_presets_for_user_path(user_path) {
+                                            if !sources.contains(&preset.path) {
+                                                sources.push(preset.path);
                                             }
                                         }
+                                        ui.close_menu();
                                     }
-                                });
+                                }
+                            });
                         }
                     }
                 });
