@@ -1,5 +1,6 @@
 //! Options, settings configuration panel, and About developer information.
 
+use crate::core::paste_hook::{is_autostart_registered, set_autostart_registered};
 use crate::core::shell::{
     install_to_system_windows, is_context_menu_registered, is_installed_in_windows,
     register_context_menu, unregister_context_menu,
@@ -51,34 +52,64 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
 
                     ui.add_space(10.0);
 
-                    // Group 2: Overwrite Policy
+                    // Group 2: Transfer Mode & Overwrite Policy
                     ui.group(|ui| {
-                        ui.label(RichText::new("🔄 Regra de Substituição de Arquivos Existentes").strong().size(16.0));
+                        ui.label(RichText::new("📋 Regras de Transferência").strong().size(16.0));
                         ui.add_space(6.0);
 
-                        for policy in OverwritePolicy::all() {
-                            ui.radio_value(
-                                &mut config.overwrite_policy,
-                                policy,
-                                RichText::new(policy.label()).size(13.5),
-                            );
-                        }
+                        ui.horizontal(|ui| {
+                            ui.label("Modo Padrão:");
+                            egui::ComboBox::from_id_salt("opt_transfer_mode")
+                                .selected_text(config.transfer_mode.label())
+                                .show_ui(ui, |ui| {
+                                    for mode in crate::core::types::TransferMode::all() {
+                                        ui.selectable_value(
+                                            &mut config.transfer_mode,
+                                            mode,
+                                            mode.label(),
+                                        );
+                                    }
+                                });
+                        });
+                        ui.add_space(4.0);
+
+                        ui.horizontal(|ui| {
+                            ui.label("Sobrescrita:");
+                            egui::ComboBox::from_id_salt("opt_overwrite_policy")
+                                .selected_text(config.overwrite_policy.label())
+                                .show_ui(ui, |ui| {
+                                    for policy in OverwritePolicy::all() {
+                                        ui.selectable_value(
+                                            &mut config.overwrite_policy,
+                                            policy,
+                                            policy.label(),
+                                        );
+                                    }
+                                });
+                        });
                     });
 
                     ui.add_space(10.0);
 
-                    // Group 3: Post Copy Actions
+                    // Group 3: Post-Copy Automation Actions
                     ui.group(|ui| {
-                        ui.label(RichText::new("🔔 Ações ao Concluir a Transferência").strong().size(16.0));
+                        ui.label(RichText::new("⚡ Ações ao Concluir a Transferência").strong().size(16.0));
                         ui.add_space(6.0);
 
-                        for action in PostCopyAction::all() {
-                            ui.radio_value(
-                                &mut config.post_action,
-                                action,
-                                RichText::new(action.label()).size(13.5),
-                            );
-                        }
+                        ui.horizontal(|ui| {
+                            ui.label("Ao finalizar o lote:");
+                            egui::ComboBox::from_id_salt("opt_post_action")
+                                .selected_text(config.post_action.label())
+                                .show_ui(ui, |ui| {
+                                    for action in PostCopyAction::all() {
+                                        ui.selectable_value(
+                                            &mut config.post_action,
+                                            action,
+                                            action.label(),
+                                        );
+                                    }
+                                });
+                        });
                     });
 
                     ui.add_space(10.0);
@@ -149,6 +180,15 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                                 let _ = unregister_context_menu();
                             }
                         });
+
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+
+                        let mut is_autostart = is_autostart_registered();
+                        if ui.checkbox(&mut is_autostart, RichText::new("⚡ Interceptar Ctrl+V no Explorer (estilo TeraCopy)").size(13.5)).on_hover_text("Inicia o assistente de colar automaticamente ao pressionar Ctrl+V dentro de pastas do Windows").changed() {
+                            let _ = set_autostart_registered(is_autostart);
+                        }
 
                         ui.add_space(8.0);
                         ui.separator();

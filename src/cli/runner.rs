@@ -49,6 +49,10 @@ pub struct CliArgs {
     /// Prompts user to paste with CopyFile or Windows Explorer in the specified destination directory
     #[arg(long = "prompt-paste")]
     pub prompt_paste: Option<PathBuf>,
+
+    /// Runs as a background daemon intercepting Ctrl+V in Windows Explorer
+    #[arg(long = "watch-paste", default_value_t = false)]
+    pub watch_paste: bool,
 }
 
 /// Runs the file transfer in CLI mode with console output.

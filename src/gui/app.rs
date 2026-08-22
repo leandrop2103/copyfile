@@ -85,6 +85,7 @@ pub struct CopyFileApp {
     show_completion_modal: bool,
     show_sources_manager: bool,
     show_paste_prompt_modal: bool,
+    needs_focus: bool,
     sources_search_query: String,
 }
 
@@ -131,6 +132,7 @@ impl Default for CopyFileApp {
             show_completion_modal: false,
             show_sources_manager: false,
             show_paste_prompt_modal: false,
+            needs_focus: true,
             sources_search_query: String::new(),
         }
     }
@@ -150,6 +152,7 @@ impl CopyFileApp {
             sources: initial_sources,
             destination: initial_destination,
             show_paste_prompt_modal: prompt_paste,
+            needs_focus: true,
             ..Default::default()
         }
     }
@@ -685,6 +688,38 @@ impl eframe::App for CopyFileApp {
         self.handle_drag_and_drop(ctx);
         self.handle_keyboard_shortcuts(ctx);
         self.handle_events();
+
+        if self.needs_focus {
+            self.needs_focus = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            #[cfg(windows)]
+            {
+                use windows_sys::Win32::UI::WindowsAndMessaging::{
+                    BringWindowToTop, FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE,
+                };
+                if self.hwnd == 0 {
+                    use std::ffi::OsStr;
+                    use std::os::windows::ffi::OsStrExt;
+                    let title: Vec<u16> =
+                        OsStr::new("CopyFile - Cópia e Backup de Alta Performance")
+                            .encode_wide()
+                            .chain(std::iter::once(0))
+                            .collect();
+                    let h = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+                    if !h.is_null() {
+                        self.hwnd = h as isize;
+                    }
+                }
+                if self.hwnd != 0 {
+                    unsafe {
+                        ShowWindow(self.hwnd as _, SW_RESTORE);
+                        BringWindowToTop(self.hwnd as _);
+                        SetForegroundWindow(self.hwnd as _);
+                    }
+                }
+            }
+        }
 
         if self.is_running {
             ctx.request_repaint_after(Duration::from_millis(16)); // 60 FPS update during copy

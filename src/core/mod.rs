@@ -5,6 +5,7 @@ pub mod exporter;
 pub mod hasher;
 pub mod metadata;
 pub mod notify;
+pub mod paste_hook;
 pub mod profiles;
 pub mod queue;
 pub mod scanner;
@@ -17,6 +18,7 @@ pub use copier::{run_copy_batch, CopyController};
 pub use disk::{get_disk_space, DiskSpaceInfo};
 pub use hasher::{compute_file_xxhash, FastHasher};
 pub use metadata::copy_metadata;
+pub use paste_hook::{is_autostart_registered, set_autostart_registered, start_paste_interceptor};
 pub use profiles::{
     get_current_user_presets, get_presets_for_user_path, list_all_windows_users, BackupPreset,
 };
