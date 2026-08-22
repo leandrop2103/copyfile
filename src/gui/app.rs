@@ -949,12 +949,22 @@ impl eframe::App for CopyFileApp {
                 self.start_copy();
             }
             if paste_explorer {
-                // Trigger standard Windows Explorer paste via simulated keystroke or exit
+                // Trigger standard Windows Explorer paste silently without any console window
                 #[cfg(windows)]
                 {
+                    use std::os::windows::process::CommandExt;
                     use std::process::Command;
+                    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
                     let _ = Command::new("powershell")
-                        .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')"])
+                        .args([
+                            "-NoProfile",
+                            "-NonInteractive",
+                            "-WindowStyle",
+                            "Hidden",
+                            "-Command",
+                            "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')",
+                        ])
+                        .creation_flags(CREATE_NO_WINDOW)
                         .spawn();
                 }
                 std::process::exit(0);

@@ -1,89 +1,126 @@
-//! Windows Explorer Ctrl+V keyboard interceptor daemon and background listener.
+//! Windows Explorer Ctrl+V low-level keyboard interceptor hook (TeraCopy-style).
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
 
-static HOOK_RUNNING: AtomicBool = AtomicBool::new(false);
+static IS_INTERCEPTOR_ENABLED: AtomicBool = AtomicBool::new(true);
+static HOOK_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-/// Starts the background thread that monitors `Ctrl+V` within Windows Explorer and Desktop.
-pub fn start_paste_interceptor(is_enabled: Arc<AtomicBool>) {
-    if HOOK_RUNNING.swap(true, Ordering::SeqCst) {
-        return; // Already running
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct KbdLlHookStruct {
+    vk_code: u32,
+    scan_code: u32,
+    flags: u32,
+    time: u32,
+    dw_extra_info: usize,
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn low_level_keyboard_proc(
+    n_code: i32,
+    w_param: usize,
+    l_param: isize,
+) -> isize {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CallNextHookEx, GetClassNameW, GetForegroundWindow, WM_KEYDOWN, WM_SYSKEYDOWN,
+    };
+
+    if n_code >= 0
+        && IS_INTERCEPTOR_ENABLED.load(Ordering::Relaxed)
+        && (w_param == WM_KEYDOWN as usize || w_param == WM_SYSKEYDOWN as usize)
+    {
+        let kbd = *(l_param as *const KbdLlHookStruct);
+        const VK_V: u32 = 0x56;
+
+        if kbd.vk_code == VK_V {
+            let ctrl_down = (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
+
+            if ctrl_down {
+                let hwnd = GetForegroundWindow();
+                if !hwnd.is_null() {
+                    let mut class_buf = [0u16; 256];
+                    let len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32);
+
+                    if len > 0 {
+                        let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
+                        let is_explorer = class_name == "CabinetWClass"
+                            || class_name == "ExploreWClass"
+                            || class_name == "Progman"
+                            || class_name == "WorkerW";
+
+                        if is_explorer && crate::core::clipboard::has_clipboard_files() {
+                            // Spawn CopyFile prompt in a separate background thread
+                            thread::spawn(|| {
+                                let dest_folder =
+                                    crate::core::clipboard::get_active_explorer_path()
+                                        .unwrap_or_else(|| PathBuf::from("."));
+
+                                let exe_path = if crate::core::shell::is_installed_in_windows() {
+                                    PathBuf::from(r"C:\Windows\copyfile.exe")
+                                } else {
+                                    std::env::current_exe()
+                                        .unwrap_or_else(|_| PathBuf::from("copyfile.exe"))
+                                };
+
+                                let _ = std::process::Command::new(exe_path)
+                                    .arg("--prompt-paste")
+                                    .arg(dest_folder)
+                                    .spawn();
+                            });
+
+                            // RETURN 1 to EAT / SUPPRESS the keystroke:
+                            // This prevents Windows Explorer from receiving Ctrl+V and prevents it from copying!
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param)
+}
+
+/// Starts the background thread that intercepts `Ctrl+V` within Windows Explorer and Desktop.
+pub fn start_paste_interceptor(is_enabled: Arc<AtomicBool>) {
+    if HOOK_INITIALIZED.swap(true, Ordering::SeqCst) {
+        return; // Already initialized
+    }
+
+    IS_INTERCEPTOR_ENABLED.store(is_enabled.load(Ordering::Relaxed), Ordering::Relaxed);
 
     thread::spawn(move || {
         #[cfg(windows)]
         {
-            use crate::core::clipboard::{get_active_explorer_path, has_clipboard_files};
-            use std::process::Command;
-            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
-            use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow};
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
+                UnhookWindowsHookEx, MSG, WH_KEYBOARD_LL,
+            };
 
-            const VK_V: i32 = 0x56;
+            let hook = unsafe {
+                SetWindowsHookExW(
+                    WH_KEYBOARD_LL,
+                    Some(low_level_keyboard_proc),
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
 
-            let mut was_pressed = false;
-
-            loop {
-                thread::sleep(Duration::from_millis(50));
-
-                if !is_enabled.load(Ordering::Relaxed) {
-                    thread::sleep(Duration::from_millis(500));
-                    continue;
-                }
-
-                let ctrl_down =
-                    unsafe { (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0 };
-                let v_down = unsafe { (GetAsyncKeyState(VK_V) as u16 & 0x8000) != 0 };
-
-                if ctrl_down && v_down {
-                    if !was_pressed {
-                        was_pressed = true;
-
-                        // Check if active foreground window is Windows Explorer or Desktop
-                        let hwnd = unsafe { GetForegroundWindow() };
-                        if !hwnd.is_null() {
-                            let mut class_buf = [0u16; 256];
-                            let len = unsafe {
-                                GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32)
-                            };
-
-                            if len > 0 {
-                                let class_name =
-                                    String::from_utf16_lossy(&class_buf[..len as usize]);
-                                let is_explorer = class_name == "CabinetWClass"
-                                    || class_name == "ExploreWClass"
-                                    || class_name == "Progman"
-                                    || class_name == "WorkerW";
-
-                                if is_explorer && has_clipboard_files() {
-                                    // Detect active folder path
-                                    let dest_folder = get_active_explorer_path()
-                                        .unwrap_or_else(|| PathBuf::from("."));
-
-                                    let exe_path = if crate::core::shell::is_installed_in_windows()
-                                    {
-                                        PathBuf::from(r"C:\Windows\copyfile.exe")
-                                    } else {
-                                        std::env::current_exe()
-                                            .unwrap_or_else(|_| PathBuf::from("copyfile.exe"))
-                                    };
-
-                                    let _ = Command::new(exe_path)
-                                        .arg("--prompt-paste")
-                                        .arg(dest_folder)
-                                        .spawn();
-
-                                    // Debounce to prevent multiple triggers
-                                    thread::sleep(Duration::from_millis(600));
-                                }
-                            }
-                        }
+            if !hook.is_null() {
+                let mut msg: MSG = unsafe { std::mem::zeroed() };
+                while unsafe { GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) } > 0 {
+                    unsafe {
+                        TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
                     }
-                } else {
-                    was_pressed = false;
+                }
+                unsafe {
+                    UnhookWindowsHookEx(hook);
                 }
             }
         }

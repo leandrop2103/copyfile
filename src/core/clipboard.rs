@@ -71,12 +71,14 @@ pub fn has_clipboard_files() -> bool {
 pub fn get_active_explorer_path() -> Option<PathBuf> {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         use std::process::Command;
 
-        // Query active explorer or desktop folder via fast powershell snippet
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+        // Query active explorer or desktop folder via fast silent powershell snippet
         let script = r#"
             $shell = New-Object -ComObject Shell.Application
-            $activeWindow = (Get-Process | Where-Object { $_.MainWindowHandle -eq (Get-ForegroundWindow) } | Select-Object -First 1).Id
             foreach ($w in $shell.Windows()) {
                 try {
                     $path = $w.Document.Folder.Self.Path
@@ -86,12 +88,19 @@ pub fn get_active_explorer_path() -> Option<PathBuf> {
                     }
                 } catch {}
             }
-            # Fallback to desktop if desktop is active
             [Environment]::GetFolderPath('Desktop')
         "#;
 
         let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", script])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                script,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .ok()?;
 
