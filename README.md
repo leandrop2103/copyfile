@@ -64,9 +64,12 @@ Construído em **Rust**, com aceleração multithread via **Rayon**, verificaç�
 
 ---
 
-## 🖱️ Arrastar e Soltar (*Drag & Drop*) & Menu de Contexto
-- **Arrastar e Soltar**: Basta arrastar pastas ou arquivos de qualquer janela do Windows Explorer e soltar dentro do CopyFile para adicioná-los às origens.
-- **Menu de Contexto do Windows**: Adicione a opção *"Copiar com CopyFile"* ao clicar com botão direito em qualquer pasta pelo painel de **⚙ Opções**.
+## 🖱️ Integração com Windows Explorer, Colar Inteligente & Menu de Contexto
+- **⚡ Colar com CopyFile (Estilo TeraCopy)**: Ao clicar com o botão direito no espaço em branco de qualquer pasta, Área de Trabalho ou unidade de disco, selecione **`⚡ Colar com CopyFile`** para colar arquivos copiados na Área de Transferência com validação xxHash3.
+- **Diálogo de Confirmação de Colar**: Permite escolher instantaneamente se deseja colar usando o **CopyFile** ou o **Windows Explorer** padrão.
+- **📂 Instalação no PATH Global (`C:\Windows\copyfile.exe`)**: Na aba **⚙ Opções**, copie o executável para a pasta do sistema com 1 clique para executar o comando `copyfile` em qualquer terminal (PowerShell, Prompt de Comando, scripts `.bat`).
+- **Arrastar e Soltar (*Drag & Drop*)**: Arraste pastas ou arquivos de qualquer janela do Windows Explorer e solte dentro do CopyFile para adicioná-los automaticamente.
+- **Menu de Contexto de Pastas e Arquivos**: Adicione *"Copiar com CopyFile"* ao clicar com botão direito em qualquer pasta ou arquivo.
 
 ---
 

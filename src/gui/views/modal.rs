@@ -454,3 +454,113 @@ pub fn render_sources_manager_modal(
             });
         });
 }
+
+/// Renders the TeraCopy-style Paste confirmation prompt dialog ("Colar com CopyFile ou com Explorer").
+pub fn render_paste_prompt_modal(
+    ctx: &egui::Context,
+    is_open: &mut bool,
+    sources_count: usize,
+    destination: Option<&PathBuf>,
+    on_paste_with_copyfile: impl FnOnce(),
+    on_paste_with_explorer: impl FnOnce(),
+) {
+    if !*is_open {
+        return;
+    }
+
+    let mut paste_copyfile_requested = false;
+    let mut paste_explorer_requested = false;
+
+    egui::Window::new("⚡ CopyFile - Colar Arquivos")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .frame(
+            egui::Frame::window(&ctx.style())
+                .fill(Color32::from_rgb(15, 23, 42))
+                .stroke(Stroke::new(1.5_f32, Color32::from_rgb(59, 130, 246)))
+                .corner_radius(CornerRadius::same(12))
+                .inner_margin(egui::Margin::same(24)),
+        )
+        .show(ctx, |ui| {
+            ui.set_width(460.0);
+
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    RichText::new("⚡ Colar com CopyFile")
+                        .size(19.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(format!(
+                        "Foram detectados {sources_count} itens na Área de Transferência."
+                    ))
+                    .size(13.5)
+                    .color(Color32::from_rgb(203, 213, 225)),
+                );
+            });
+
+            ui.add_space(12.0);
+
+            if let Some(dst) = destination {
+                egui::Frame::NONE
+                    .fill(Color32::from_rgb(24, 33, 47))
+                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new(format!("🎯 Destino: {}", dst.display()))
+                                .size(13.0)
+                                .color(Color32::from_rgb(52, 211, 153))
+                                .strong(),
+                        );
+                    });
+            }
+
+            ui.add_space(16.0);
+            ui.separator();
+            ui.add_space(16.0);
+
+            ui.horizontal(|ui| {
+                let explorer_btn = egui::Button::new(
+                    RichText::new("📁 Colar com Explorer")
+                        .size(13.5)
+                        .strong()
+                        .color(Color32::from_rgb(203, 213, 225)),
+                )
+                .fill(Color32::from_rgb(51, 65, 85))
+                .min_size(Vec2::new(180.0, 36.0));
+
+                if ui.add(explorer_btn).clicked() {
+                    paste_explorer_requested = true;
+                    *is_open = false;
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let copyfile_btn = egui::Button::new(
+                        RichText::new("⚡ Colar com CopyFile")
+                            .size(13.5)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(Color32::from_rgb(37, 99, 235))
+                    .min_size(Vec2::new(200.0, 36.0));
+
+                    if ui.add(copyfile_btn).clicked() {
+                        paste_copyfile_requested = true;
+                        *is_open = false;
+                    }
+                });
+            });
+        });
+
+    if paste_copyfile_requested {
+        on_paste_with_copyfile();
+    }
+    if paste_explorer_requested {
+        on_paste_with_explorer();
+    }
+}

@@ -1,7 +1,8 @@
 //! Options, settings configuration panel, and About developer information.
 
 use crate::core::shell::{
-    is_context_menu_registered, register_context_menu, unregister_context_menu,
+    install_to_system_windows, is_context_menu_registered, is_installed_in_windows,
+    register_context_menu, unregister_context_menu,
 };
 use crate::core::types::{CopyConfig, OverwritePolicy, PostCopyAction};
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
@@ -26,24 +27,25 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                         ui.add_space(6.0);
 
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Threads paralelas:").size(14.0));
-                            ui.add(Slider::new(&mut config.num_threads, 1..=32).text("workers"));
+                            ui.label("Threads Paralelas:");
+                            ui.add(Slider::new(&mut config.num_threads, 1..=32).text("núcleos"));
                         });
-
                         ui.add_space(4.0);
 
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Tamanho do Buffer de I/O:").size(14.0));
-                            let mut buffer_mb = (config.buffer_size_kb / 1024).max(1);
-                            if ui.add(Slider::new(&mut buffer_mb, 1..=16).text("MB por thread")).changed() {
-                                config.buffer_size_kb = buffer_mb * 1024;
-                            }
+                            ui.label("Buffer por Thread:");
+                            ui.add(
+                                Slider::new(&mut config.buffer_size_kb, 64..=16384)
+                                    .step_by(64.0)
+                                    .text("KiB"),
+                            );
                         });
-
                         ui.add_space(4.0);
+
                         ui.checkbox(
                             &mut config.direct_io,
-                            RichText::new("Direct I/O em arquivos grandes (>64MB - contorna cache de RAM e maximiza barramento USB/NVMe)").size(13.5),
+                            RichText::new("Direct I/O em arquivos grandes (>64MB - ignora cache de RAM)")
+                                .size(13.5),
                         );
                     });
 
@@ -122,14 +124,14 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
 
                     ui.add_space(10.0);
 
-                    // Group 5: Windows Context Menu Integration
+                    // Group 6: Windows Explorer & System PATH Integration
                     ui.group(|ui| {
-                        ui.label(RichText::new("🖱 Integração com Windows Explorer").strong().size(16.0));
+                        ui.label(RichText::new("🖱 Integração com Windows Explorer e Sistema").strong().size(16.0));
                         ui.add_space(6.0);
 
                         let is_registered = is_context_menu_registered();
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Menu de Contexto:").size(14.0));
+                            ui.label(RichText::new("Menu de Contexto (Copiar & Colar):").size(14.0));
                             if is_registered {
                                 ui.label(RichText::new("✔ Ativo (com ícone)").color(COLOR_SUCCESS).strong().size(14.0));
                             } else {
@@ -147,6 +149,25 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                                 let _ = unregister_context_menu();
                             }
                         });
+
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+
+                        let in_windows = is_installed_in_windows();
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Instalação C:\\Windows\\copyfile.exe:").size(14.0));
+                            if in_windows {
+                                ui.label(RichText::new("✔ Instalado no PATH").color(COLOR_SUCCESS).strong().size(14.0));
+                            } else {
+                                ui.label(RichText::new("✖ Não copiado").color(COLOR_MUTED).size(14.0));
+                            }
+                        });
+
+                        ui.add_space(6.0);
+                        if ui.button(RichText::new("📁 Copiar para C:\\Windows\\ (PATH global)").size(13.5)).on_hover_text("Copia o executável para a pasta do Windows para executar 'copyfile' de qualquer lugar").clicked() {
+                            let _ = install_to_system_windows();
+                        }
                     });
                 });
 
@@ -172,7 +193,7 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                     .show(col_right, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("⚡ CopyFile").strong().size(22.0).color(COLOR_ACCENT));
-                            ui.label(RichText::new("v0.1.0").small().color(COLOR_MUTED));
+                            ui.label(RichText::new("v1.0.0").small().color(COLOR_MUTED));
                         });
 
                         ui.add_space(4.0);

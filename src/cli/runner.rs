@@ -41,6 +41,14 @@ pub struct CliArgs {
     /// Run in headless CLI mode without opening GUI window
     #[arg(long, default_value_t = false)]
     pub cli: bool,
+
+    /// Pastes files currently in Windows Clipboard to the specified destination directory
+    #[arg(long = "paste-to")]
+    pub paste_to: Option<PathBuf>,
+
+    /// Prompts user to paste with CopyFile or Windows Explorer in the specified destination directory
+    #[arg(long = "prompt-paste")]
+    pub prompt_paste: Option<PathBuf>,
 }
 
 /// Runs the file transfer in CLI mode with console output.

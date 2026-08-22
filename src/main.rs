@@ -22,6 +22,25 @@ fn main() -> anyhow::Result<()> {
         return run_cli(args);
     }
 
+    let mut initial_sources = args.sources;
+    let mut initial_destination = args.dest;
+    let mut prompt_paste = false;
+
+    if let Some(dest_dir) = args.paste_to {
+        let clip_files = copyfile::core::get_clipboard_files();
+        if !clip_files.is_empty() {
+            initial_sources = clip_files;
+            initial_destination = Some(dest_dir);
+        }
+    } else if let Some(dest_dir) = args.prompt_paste {
+        let clip_files = copyfile::core::get_clipboard_files();
+        if !clip_files.is_empty() {
+            initial_sources = clip_files;
+            initial_destination = Some(dest_dir);
+            prompt_paste = true;
+        }
+    }
+
     // Launch GUI Mode with eframe
     let icon = copyfile::gui::create_app_icon();
     let native_options = eframe::NativeOptions {
@@ -34,11 +53,17 @@ fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    let initial_sources = args.sources;
     eframe::run_native(
         "CopyFile",
         native_options,
-        Box::new(move |cc| Ok(Box::new(CopyFileApp::new(cc, initial_sources)))),
+        Box::new(move |cc| {
+            Ok(Box::new(CopyFileApp::new(
+                cc,
+                initial_sources,
+                initial_destination,
+                prompt_paste,
+            )))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("Falha ao inicializar interface gráfica: {e}"))?;
 

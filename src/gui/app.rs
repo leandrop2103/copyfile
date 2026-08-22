@@ -84,6 +84,7 @@ pub struct CopyFileApp {
     hwnd: isize,
     show_completion_modal: bool,
     show_sources_manager: bool,
+    show_paste_prompt_modal: bool,
     sources_search_query: String,
 }
 
@@ -129,18 +130,26 @@ impl Default for CopyFileApp {
             hwnd: 0,
             show_completion_modal: false,
             show_sources_manager: false,
+            show_paste_prompt_modal: false,
             sources_search_query: String::new(),
         }
     }
 }
 
 impl CopyFileApp {
-    /// Creates a new application instance with optional initial sources.
+    /// Creates a new application instance with optional initial sources, destination, and paste prompt mode.
     #[must_use]
-    pub fn new(cc: &eframe::CreationContext<'_>, initial_sources: Vec<PathBuf>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        initial_sources: Vec<PathBuf>,
+        initial_destination: Option<PathBuf>,
+        prompt_paste: bool,
+    ) -> Self {
         configure_theme(&cc.egui_ctx);
         Self {
             sources: initial_sources,
+            destination: initial_destination,
+            show_paste_prompt_modal: prompt_paste,
             ..Default::default()
         }
     }
@@ -561,7 +570,8 @@ impl CopyFileApp {
             }
 
             // F5 or Ctrl+Enter: Start Copy / Sync
-            if (i.key_pressed(egui::Key::F5) || (i.modifiers.ctrl && i.key_pressed(egui::Key::Enter)))
+            if (i.key_pressed(egui::Key::F5)
+                || (i.modifiers.ctrl && i.key_pressed(egui::Key::Enter)))
                 && !self.is_running
                 && !self.sources.is_empty()
                 && self.destination.is_some()
@@ -883,6 +893,36 @@ impl eframe::App for CopyFileApp {
             }
             if retry_requested {
                 self.retry_failed_files();
+            }
+        }
+
+        // --- Paste Prompt Modal Dialog (TeraCopy-style) ---
+        if self.show_paste_prompt_modal {
+            let mut paste_copyfile = false;
+            let mut paste_explorer = false;
+
+            crate::gui::views::render_paste_prompt_modal(
+                ctx,
+                &mut self.show_paste_prompt_modal,
+                self.sources.len(),
+                self.destination.as_ref(),
+                || paste_copyfile = true,
+                || paste_explorer = true,
+            );
+
+            if paste_copyfile {
+                self.start_copy();
+            }
+            if paste_explorer {
+                // Trigger standard Windows Explorer paste via simulated keystroke or exit
+                #[cfg(windows)]
+                {
+                    use std::process::Command;
+                    let _ = Command::new("powershell")
+                        .args(["-NoProfile", "-Command", "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')"])
+                        .spawn();
+                }
+                std::process::exit(0);
             }
         }
     }

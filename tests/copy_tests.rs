@@ -394,3 +394,12 @@ fn test_mirror_sync_mode() {
     assert!(dst_file_b.exists());
     assert!(!dst_orphan.exists());
 }
+
+#[test]
+fn test_clipboard_functions() {
+    use copyfile::core::{get_clipboard_files, has_clipboard_files};
+
+    // Calling clipboard functions in test environment should not panic
+    let _ = has_clipboard_files();
+    let _ = get_clipboard_files();
+}

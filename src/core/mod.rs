@@ -1,5 +1,4 @@
-//! Core engine module for CopyFile.
-
+pub mod clipboard;
 pub mod copier;
 pub mod disk;
 pub mod exporter;
@@ -13,6 +12,7 @@ pub mod shell;
 pub mod taskbar;
 pub mod types;
 
+pub use clipboard::{get_active_explorer_path, get_clipboard_files, has_clipboard_files};
 pub use copier::{run_copy_batch, CopyController};
 pub use disk::{get_disk_space, DiskSpaceInfo};
 pub use hasher::{compute_file_xxhash, FastHasher};
