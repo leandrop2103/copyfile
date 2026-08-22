@@ -51,31 +51,58 @@ pub fn register_context_menu() -> io::Result<()> {
             REG_OPTION_NON_VOLATILE, REG_SZ,
         };
 
-        let exe_path = env::current_exe()?;
+        let exe_path = if is_installed_in_windows() {
+            std::path::PathBuf::from(r"C:\Windows\copyfile.exe")
+        } else {
+            env::current_exe()?
+        };
         let exe_str = exe_path.to_string_lossy();
 
         let contexts = [
+            // Context menu on clicking directly on folders
             (
                 "Software\\Classes\\Directory\\shell\\CopyFile",
                 "Copiar com CopyFile",
                 format!("\"{exe_str}\" -s \"%1\""),
             ),
             (
-                "Software\\Classes\\Directory\\Background\\shell\\CopyFile",
-                "Copiar com CopyFile",
-                format!("\"{exe_str}\" -s \"%V\""),
+                "Software\\Classes\\Directory\\shell\\CopyFilePaste",
+                "Colar com CopyFile",
+                format!("\"{exe_str}\" --paste-to \"%1\""),
             ),
+            (
+                "Software\\Classes\\Folder\\shell\\CopyFile",
+                "Copiar com CopyFile",
+                format!("\"{exe_str}\" -s \"%1\""),
+            ),
+            (
+                "Software\\Classes\\Folder\\shell\\CopyFilePaste",
+                "Colar com CopyFile",
+                format!("\"{exe_str}\" --paste-to \"%1\""),
+            ),
+            // Context menu on files
+            (
+                "Software\\Classes\\*\\shell\\CopyFile",
+                "Copiar com CopyFile",
+                format!("\"{exe_str}\" -s \"%1\""),
+            ),
+            // Context menu on drives
             (
                 "Software\\Classes\\Drive\\shell\\CopyFile",
                 "Copiar com CopyFile",
                 format!("\"{exe_str}\" -s \"%1\""),
             ),
             (
-                "Software\\Classes\\*\\shell\\CopyFile",
-                "Copiar com CopyFile",
-                format!("\"{exe_str}\" -s \"%1\""),
+                "Software\\Classes\\Drive\\shell\\CopyFilePaste",
+                "Colar com CopyFile",
+                format!("\"{exe_str}\" --paste-to \"%1\""),
             ),
-            // Paste with CopyFile in Folder Background, Drives, and Desktop
+            // Context menu on empty space (background) of folders, drives and desktop
+            (
+                "Software\\Classes\\Directory\\Background\\shell\\CopyFile",
+                "Copiar com CopyFile",
+                format!("\"{exe_str}\" -s \"%V\""),
+            ),
             (
                 "Software\\Classes\\Directory\\Background\\shell\\CopyFilePaste",
                 "Colar com CopyFile",
@@ -219,9 +246,13 @@ pub fn unregister_context_menu() -> io::Result<()> {
 
         let contexts = [
             "Software\\Classes\\Directory\\shell\\CopyFile",
-            "Software\\Classes\\Directory\\Background\\shell\\CopyFile",
-            "Software\\Classes\\Drive\\shell\\CopyFile",
+            "Software\\Classes\\Directory\\shell\\CopyFilePaste",
+            "Software\\Classes\\Folder\\shell\\CopyFile",
+            "Software\\Classes\\Folder\\shell\\CopyFilePaste",
             "Software\\Classes\\*\\shell\\CopyFile",
+            "Software\\Classes\\Drive\\shell\\CopyFile",
+            "Software\\Classes\\Drive\\shell\\CopyFilePaste",
+            "Software\\Classes\\Directory\\Background\\shell\\CopyFile",
             "Software\\Classes\\Directory\\Background\\shell\\CopyFilePaste",
             "Software\\Classes\\Drive\\Background\\shell\\CopyFilePaste",
             "Software\\Classes\\DesktopBackground\\shell\\CopyFilePaste",
