@@ -104,6 +104,21 @@ pub fn run_copy_batch(
         }
     });
 
+    if config_arc.transfer_mode == crate::core::types::TransferMode::Move {
+        let mut dirs: std::collections::HashSet<std::path::PathBuf> =
+            std::collections::HashSet::new();
+        for entry in entries_arc.iter() {
+            if let Some(parent) = entry.source_path.parent() {
+                dirs.insert(parent.to_path_buf());
+            }
+        }
+        let mut dirs_vec: Vec<_> = dirs.into_iter().collect();
+        dirs_vec.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+        for dir in dirs_vec {
+            let _ = fs::remove_dir(&dir);
+        }
+    }
+
     let _ = event_tx.send(CopyEvent::AllCompleted {
         total_duration: start_time.elapsed(),
     });
@@ -152,6 +167,9 @@ fn process_single_file(
                     id: entry.id,
                     error: err_msg.clone(),
                 });
+                if !config.ignore_errors {
+                    controller.cancel();
+                }
                 let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
                     LogLevel::Error,
                     Some(src.clone()),
@@ -175,6 +193,9 @@ fn process_single_file(
                     id: entry.id,
                     error: err_msg.clone(),
                 });
+                if !config.ignore_errors {
+                    controller.cancel();
+                }
                 let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
                     LogLevel::Error,
                     Some(src.clone()),
@@ -194,6 +215,9 @@ fn process_single_file(
                 id: entry.id,
                 error: err_msg.clone(),
             });
+            if !config.ignore_errors {
+                controller.cancel();
+            }
             let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
                 LogLevel::Error,
                 Some(src.clone()),
@@ -212,6 +236,9 @@ fn process_single_file(
                 id: entry.id,
                 error: err_msg.clone(),
             });
+            if !config.ignore_errors {
+                controller.cancel();
+            }
             let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
                 LogLevel::Error,
                 Some(src.clone()),
@@ -231,7 +258,9 @@ fn process_single_file(
     let mut buffer = vec![0u8; chunk_size];
     let mut hasher = FastHasher::new();
     let mut bytes_copied = 0u64;
+    let mut chunk_delta_acc = 0u64;
     let total_bytes = entry.size;
+    let mut last_progress_time = Instant::now();
 
     loop {
         if controller.is_cancelled() {
@@ -258,6 +287,9 @@ fn process_single_file(
                     id: entry.id,
                     error: err_msg.clone(),
                 });
+                if !config.ignore_errors {
+                    controller.cancel();
+                }
                 let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
                     LogLevel::Error,
                     Some(src.clone()),
@@ -277,6 +309,9 @@ fn process_single_file(
                 id: entry.id,
                 error: err_msg.clone(),
             });
+            if !config.ignore_errors {
+                controller.cancel();
+            }
             let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
                 LogLevel::Error,
                 Some(src.clone()),
@@ -286,12 +321,18 @@ fn process_single_file(
         }
 
         bytes_copied += bytes_read as u64;
-        let _ = event_tx.send(CopyEvent::FileProgress {
-            id: entry.id,
-            copied_bytes: bytes_copied,
-            total_bytes,
-            chunk_delta: bytes_read as u64,
-        });
+        chunk_delta_acc += bytes_read as u64;
+        let now = Instant::now();
+        if now.duration_since(last_progress_time).as_millis() >= 30 {
+            let _ = event_tx.send(CopyEvent::FileProgress {
+                id: entry.id,
+                copied_bytes: bytes_copied,
+                total_bytes,
+                chunk_delta: chunk_delta_acc,
+            });
+            last_progress_time = now;
+            chunk_delta_acc = 0;
+        }
     }
 
     if let Err(e) = dst_file.flush() {
@@ -300,6 +341,9 @@ fn process_single_file(
             id: entry.id,
             error: err_msg.clone(),
         });
+        if !config.ignore_errors {
+            controller.cancel();
+        }
         return;
     }
     drop(dst_file);
@@ -313,7 +357,7 @@ fn process_single_file(
 
     // Verify Destination Integrity if requested
     if config.verify_checksum {
-        match compute_file_xxhash(dst, buffer_size) {
+        match compute_file_xxhash(dst, buffer_size, Some(&mut buffer)) {
             Ok(dst_hash) => {
                 if dst_hash != src_hash {
                     let err_msg = format!(
@@ -323,6 +367,9 @@ fn process_single_file(
                         id: entry.id,
                         error: err_msg.clone(),
                     });
+                    if !config.ignore_errors {
+                        controller.cancel();
+                    }
                     let _ = event_tx.send(CopyEvent::Log(LogEntry::new(
                         LogLevel::Error,
                         Some(src.clone()),
@@ -337,6 +384,9 @@ fn process_single_file(
                     id: entry.id,
                     error: err_msg.clone(),
                 });
+                if !config.ignore_errors {
+                    controller.cancel();
+                }
                 return;
             }
         }
@@ -441,8 +491,9 @@ fn check_overwrite_policy(
                 return Ok((true, None, None));
             }
 
-            let src_hash = compute_file_xxhash(src, buffer_size)?;
-            let dst_hash = compute_file_xxhash(dst, buffer_size)?;
+            let mut hash_buf = vec![0u8; buffer_size.max(64 * 1024)];
+            let src_hash = compute_file_xxhash(src, buffer_size, Some(&mut hash_buf))?;
+            let dst_hash = compute_file_xxhash(dst, buffer_size, Some(&mut hash_buf))?;
 
             if src_hash == dst_hash {
                 Ok((

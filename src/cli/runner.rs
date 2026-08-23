@@ -1,9 +1,9 @@
 //! Headless CLI execution runner for automated backups and scripts.
 
 use crate::core::copier::{run_copy_batch, CopyController};
+use crate::core::format::{format_bytes, format_duration};
 use crate::core::scanner::scan_sources;
 use crate::core::types::{CopyConfig, CopyEvent, LogLevel, OverwritePolicy};
-use crate::gui::views::header::{format_bytes, format_duration};
 use clap::Parser;
 use crossbeam_channel::unbounded;
 use std::path::PathBuf;
@@ -116,8 +116,10 @@ pub fn run_cli(args: CliArgs) -> anyhow::Result<()> {
     let (event_tx, event_rx) = unbounded();
     let controller = CopyController::new();
 
+    let config_for_thread = config.clone();
+    let controller_for_thread = controller.clone();
     let copy_thread = std::thread::spawn(move || {
-        run_copy_batch(entries, config, controller, event_tx);
+        run_copy_batch(entries, config_for_thread, controller_for_thread, event_tx);
     });
 
     let mut copied_bytes = 0u64;
@@ -159,6 +161,10 @@ pub fn run_cli(args: CliArgs) -> anyhow::Result<()> {
             CopyEvent::FileFailed { error, .. } => {
                 error_count += 1;
                 eprintln!("\n[ERRO]: {error}");
+                if !config.ignore_errors {
+                    controller.cancel();
+                    break;
+                }
             }
             CopyEvent::Log(log) => {
                 if log.level == LogLevel::Error {
@@ -186,5 +192,13 @@ pub fn run_cli(args: CliArgs) -> anyhow::Result<()> {
     }
 
     let _ = copy_thread.join();
+
+    if error_count > 0 {
+        anyhow::bail!(
+            "{} arquivo(s) falharam durante a transferência.",
+            error_count
+        );
+    }
+
     Ok(())
 }

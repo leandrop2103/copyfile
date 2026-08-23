@@ -60,17 +60,35 @@ impl FastHasher {
 ///
 /// # Errors
 /// Returns an `io::Error` if the file cannot be opened or read.
-pub fn compute_file_xxhash(path: &Path, buffer_size: usize) -> io::Result<String> {
+pub fn compute_file_xxhash(
+    path: &Path,
+    buffer_size: usize,
+    buffer: Option<&mut Vec<u8>>,
+) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut hasher = FastHasher::new();
-    let mut buffer = vec![0u8; buffer_size.max(64 * 1024)];
+    let size = buffer_size.max(64 * 1024);
+
+    let mut local_buf;
+    let buf_ref = match buffer {
+        Some(b) => {
+            if b.len() < size {
+                b.resize(size, 0);
+            }
+            b
+        }
+        None => {
+            local_buf = vec![0u8; size];
+            &mut local_buf
+        }
+    };
 
     loop {
-        let bytes_read = file.read(&mut buffer)?;
+        let bytes_read = file.read(buf_ref)?;
         if bytes_read == 0 {
             break;
         }
-        hasher.update(&buffer[..bytes_read]);
+        hasher.update(&buf_ref[..bytes_read]);
     }
 
     Ok(hasher.finalize_short_hex())

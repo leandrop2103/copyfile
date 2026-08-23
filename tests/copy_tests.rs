@@ -28,8 +28,8 @@ fn test_xxhash3_integrity() {
     let content = b"High performance backup test with xxHash3 algorithm in Rust.";
     fs::write(&test_file, content).unwrap();
 
-    let hash1 = compute_file_xxhash(&test_file, 64 * 1024).unwrap();
-    let hash2 = compute_file_xxhash(&test_file, 64 * 1024).unwrap();
+    let hash1 = compute_file_xxhash(&test_file, 64 * 1024, None).unwrap();
+    let hash2 = compute_file_xxhash(&test_file, 64 * 1024, None).unwrap();
 
     assert_eq!(hash1, hash2);
     assert!(hash1.contains(':'));

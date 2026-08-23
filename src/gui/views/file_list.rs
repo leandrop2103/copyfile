@@ -1,8 +1,8 @@
 //! File list view rendered as a virtualized table with status color coding and auto-scrolling.
 
+use crate::core::format::format_bytes;
 use crate::core::types::{FileEntry, FileStatus};
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
-use crate::gui::views::header::format_bytes;
 use eframe::egui::{self, RichText, ScrollArea, Ui};
 use egui_extras::{Column, TableBuilder};
 
@@ -16,6 +16,18 @@ pub enum ListFilter {
     ErrorsOnly,
 }
 
+fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    haystack.char_indices().any(|(i, _)| {
+        haystack[i..]
+            .chars()
+            .zip(needle.chars())
+            .all(|(h, n)| h.to_lowercase().eq(n.to_lowercase()))
+    })
+}
+
 /// Renders the file list table.
 pub fn render_file_list(
     ui: &mut Ui,
@@ -27,19 +39,16 @@ pub fn render_file_list(
     on_retry_failed: impl FnOnce(),
 ) {
     // Count items by status
+    let (mut success_count, mut skipped_count, mut error_count) = (0, 0, 0);
+    for entry in entries {
+        match &entry.status {
+            FileStatus::Success { .. } => success_count += 1,
+            FileStatus::Skipped { .. } => skipped_count += 1,
+            FileStatus::Error { .. } => error_count += 1,
+            _ => {}
+        }
+    }
     let total_count = entries.len();
-    let success_count = entries
-        .iter()
-        .filter(|e| matches!(e.status, FileStatus::Success { .. }))
-        .count();
-    let skipped_count = entries
-        .iter()
-        .filter(|e| matches!(e.status, FileStatus::Skipped { .. }))
-        .count();
-    let error_count = entries
-        .iter()
-        .filter(|e| matches!(e.status, FileStatus::Error { .. }))
-        .count();
 
     // --- Toolbar ---
     ui.horizontal(|ui| {
@@ -134,16 +143,8 @@ pub fn render_file_list(
                 true
             } else {
                 let q = search_query.to_lowercase();
-                entry
-                    .source_path
-                    .to_string_lossy()
-                    .to_lowercase()
-                    .contains(&q)
-                    || entry
-                        .dest_path
-                        .to_string_lossy()
-                        .to_lowercase()
-                        .contains(&q)
+                contains_case_insensitive(&entry.source_path.to_string_lossy(), &q)
+                    || contains_case_insensitive(&entry.dest_path.to_string_lossy(), &q)
             }
         })
         .map(|(i, _)| i)
@@ -182,6 +183,17 @@ pub fn render_file_list(
     } else {
         None
     };
+
+    // Smart auto-scroll: pause if user scrolls manually
+    if *auto_scroll && ui.rect_contains_pointer(ui.max_rect()) {
+        ui.input(|i| {
+            if i.raw_scroll_delta.y.abs() > 0.1
+                || (i.pointer.primary_down() && i.pointer.is_moving())
+            {
+                *auto_scroll = false;
+            }
+        });
+    }
 
     // --- Excel-like Scrollable Table with Horizontal & Vertical Freedom ---
     ScrollArea::horizontal()
@@ -264,7 +276,25 @@ pub fn render_file_list(
                         // Column 2: Source Path
                         row.col(|ui| {
                             let text = entry.source_path.to_string_lossy();
-                            ui.label(RichText::new(text).color(status_color).size(13.0));
+                            let resp = ui.label(RichText::new(text).color(status_color).size(13.0));
+                            resp.context_menu(|ui| {
+                                if ui.button("📂 Abrir local do arquivo").clicked() {
+                                    if let Some(parent) = entry.source_path.parent() {
+                                        let _ = std::process::Command::new("explorer").arg(parent).spawn();
+                                    }
+                                    ui.close_menu();
+                                }
+                                if ui.button("📋 Copiar caminho completo").clicked() {
+                                    ui.ctx().copy_text(entry.source_path.to_string_lossy().to_string());
+                                    ui.close_menu();
+                                }
+                                if let Some(hash) = &entry.hash {
+                                    if ui.button("#️⃣ Copiar hash xxHash3").clicked() {
+                                        ui.ctx().copy_text(hash.clone());
+                                        ui.close_menu();
+                                    }
+                                }
+                            });
                         });
 
                         // Column 3: Checksum Hash

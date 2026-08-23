@@ -52,7 +52,9 @@ pub fn scan_sources(sources: &[PathBuf], dest_root: &Path) -> (Vec<FileEntry>, u
             }
         } else if src.is_dir() {
             // Include folder name in relative destination
-            let folder_name = src.file_name().unwrap_or_default();
+            let clean_src_str = src.to_string_lossy();
+            let clean_src_str = clean_src_str.trim_end_matches(std::path::is_separator);
+            let folder_name = Path::new(clean_src_str).file_name().unwrap_or_default();
             scan_dir_recursive(
                 src,
                 src,
@@ -87,6 +89,13 @@ fn scan_dir_recursive(
             Ok(e) => e,
             Err(_) => continue,
         };
+
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
+            continue; // Skip symlinks and junctions to prevent infinite recursion
+        }
 
         let path = entry.path();
         let meta = match entry.metadata() {
@@ -144,9 +153,9 @@ pub fn find_mirror_orphan_entries(
 ) -> Vec<PathBuf> {
     use std::collections::HashSet;
 
-    let valid_dest_paths: HashSet<&Path> = scanned_entries
+    let valid_dest_paths: HashSet<String> = scanned_entries
         .iter()
-        .map(|e| e.dest_path.as_path())
+        .map(|e| e.dest_path.to_string_lossy().to_lowercase())
         .collect();
 
     let mut orphans = Vec::new();
@@ -155,7 +164,9 @@ pub fn find_mirror_orphan_entries(
         if !src.exists() {
             continue;
         }
-        let folder_name = src.file_name().unwrap_or_default();
+        let clean_src_str = src.to_string_lossy();
+        let clean_src_str = clean_src_str.trim_end_matches(std::path::is_separator);
+        let folder_name = Path::new(clean_src_str).file_name().unwrap_or_default();
         let target_dest = dest_root.join(folder_name);
 
         if target_dest.exists() && target_dest.is_dir() {
@@ -168,7 +179,7 @@ pub fn find_mirror_orphan_entries(
 
 fn scan_dest_orphans_recursive(
     current_dir: &Path,
-    valid_dest_paths: &std::collections::HashSet<&Path>,
+    valid_dest_paths: &std::collections::HashSet<String>,
     orphans: &mut Vec<PathBuf>,
 ) {
     let read_dir = match fs::read_dir(current_dir) {
@@ -191,7 +202,7 @@ fn scan_dest_orphans_recursive(
             if fs::read_dir(&path).is_ok_and(|mut rd| rd.next().is_none()) {
                 orphans.push(path);
             }
-        } else if !valid_dest_paths.contains(path.as_path()) {
+        } else if !valid_dest_paths.contains(&path.to_string_lossy().to_lowercase()) {
             orphans.push(path);
         }
     }

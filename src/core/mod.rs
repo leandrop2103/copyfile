@@ -2,6 +2,7 @@ pub mod clipboard;
 pub mod copier;
 pub mod disk;
 pub mod exporter;
+pub mod format;
 pub mod hasher;
 pub mod metadata;
 pub mod notify;

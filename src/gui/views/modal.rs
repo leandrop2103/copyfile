@@ -1,9 +1,9 @@
 //! Completion statistics modal dialog.
 
 use crate::core::exporter::{export_csv_report, export_html_report};
+use crate::core::format::{format_bytes, format_duration};
 use crate::core::types::FileEntry;
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
-use crate::gui::views::header::{format_bytes, format_duration};
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 use std::path::PathBuf;
 use std::time::Duration;

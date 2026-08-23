@@ -241,8 +241,54 @@ pub fn unregister_context_menu() -> io::Result<()> {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::System::Registry::{
-            RegCloseKey, RegDeleteKeyW, RegOpenKeyExW, HKEY, HKEY_CURRENT_USER, KEY_WRITE,
+            RegCloseKey, RegDeleteKeyW, RegEnumKeyExW, RegOpenKeyExW, HKEY, HKEY_CURRENT_USER,
+            KEY_ALL_ACCESS,
         };
+
+        fn delete_reg_key_recursive(hkey_parent: HKEY, subkey: &OsStr) -> u32 {
+            let subkey_wide: Vec<u16> = subkey.encode_wide().chain(std::iter::once(0)).collect();
+            let mut hkey: HKEY = std::ptr::null_mut();
+
+            let res = unsafe {
+                RegOpenKeyExW(
+                    hkey_parent,
+                    subkey_wide.as_ptr(),
+                    0,
+                    KEY_ALL_ACCESS,
+                    &mut hkey,
+                )
+            };
+            if res != 0 {
+                return res as u32;
+            }
+
+            loop {
+                let mut name_buf = [0u16; 256];
+                let mut name_len = 256;
+                let res_enum = unsafe {
+                    RegEnumKeyExW(
+                        hkey,
+                        0,
+                        name_buf.as_mut_ptr(),
+                        &mut name_len,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    )
+                };
+                if res_enum != 0 {
+                    break;
+                }
+
+                use std::os::windows::ffi::OsStringExt;
+                let child_name = std::ffi::OsString::from_wide(&name_buf[..name_len as usize]);
+                delete_reg_key_recursive(hkey, &child_name);
+            }
+
+            unsafe { RegCloseKey(hkey) };
+            unsafe { RegDeleteKeyW(hkey_parent, subkey_wide.as_ptr()) as u32 }
+        }
 
         let contexts = [
             "Software\\Classes\\Directory\\shell\\CopyFile",
@@ -259,28 +305,7 @@ pub fn unregister_context_menu() -> io::Result<()> {
         ];
 
         for base_path in contexts {
-            let cmd_path = format!("{base_path}\\command");
-            let cmd_wide: Vec<u16> = OsStr::new(&cmd_path)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-
-            let base_wide: Vec<u16> = OsStr::new(base_path)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-
-            let mut hkey: HKEY = std::ptr::null_mut();
-            if unsafe {
-                RegOpenKeyExW(HKEY_CURRENT_USER, std::ptr::null(), 0, KEY_WRITE, &mut hkey)
-            } == 0
-            {
-                unsafe {
-                    let _ = RegDeleteKeyW(hkey, cmd_wide.as_ptr());
-                    let _ = RegDeleteKeyW(hkey, base_wide.as_ptr());
-                    RegCloseKey(hkey);
-                }
-            }
+            delete_reg_key_recursive(HKEY_CURRENT_USER, OsStr::new(base_path));
         }
 
         Ok(())

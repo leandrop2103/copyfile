@@ -20,6 +20,7 @@ pub fn render_logs(
     ui: &mut Ui,
     logs: &[LogEntry],
     filter: &mut LogFilter,
+    search_query: &mut String,
     on_clear: impl FnOnce(),
 ) {
     // --- Toolbar ---
@@ -36,6 +37,14 @@ pub fn render_logs(
             filter,
             LogFilter::WarningsOnly,
             RichText::new("Avisos / Ignorados").color(COLOR_WARNING),
+        );
+
+        ui.separator();
+        ui.label(RichText::new("🔍").size(15.0));
+        ui.add(
+            egui::TextEdit::singleline(search_query)
+                .hint_text("Buscar nos logs...")
+                .desired_width(150.0),
         );
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -89,12 +98,26 @@ pub fn render_logs(
 
     ui.separator();
 
+    let q = search_query.to_lowercase();
     let filtered_logs: Vec<&LogEntry> = logs
         .iter()
-        .filter(|log| match filter {
-            LogFilter::All => true,
-            LogFilter::ErrorsOnly => log.level == LogLevel::Error,
-            LogFilter::WarningsOnly => log.level == LogLevel::Warn,
+        .filter(|log| {
+            let level_match = match filter {
+                LogFilter::All => true,
+                LogFilter::ErrorsOnly => log.level == LogLevel::Error,
+                LogFilter::WarningsOnly => log.level == LogLevel::Warn,
+            };
+            if !level_match {
+                return false;
+            }
+            if q.is_empty() {
+                return true;
+            }
+            log.message.to_lowercase().contains(&q)
+                || log
+                    .path
+                    .as_ref()
+                    .is_some_and(|p| p.to_string_lossy().to_lowercase().contains(&q))
         })
         .collect();
 

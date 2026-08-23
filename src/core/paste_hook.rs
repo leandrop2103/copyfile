@@ -78,7 +78,9 @@ unsafe extern "system" fn low_level_keyboard_proc(
     w_param: usize,
     l_param: isize,
 ) -> isize {
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, GetForegroundWindow, WM_KEYDOWN, WM_SYSKEYDOWN,
     };
@@ -94,30 +96,41 @@ unsafe extern "system" fn low_level_keyboard_proc(
             let ctrl_down = (GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000) != 0;
 
             if ctrl_down {
-                let hwnd = GetForegroundWindow();
-                if is_explorer_active_window(hwnd) && crate::core::clipboard::has_clipboard_files()
-                {
-                    // Spawn CopyFile prompt in a separate background thread
-                    thread::spawn(|| {
-                        let dest_folder = crate::core::clipboard::get_active_explorer_path()
-                            .unwrap_or_else(|| PathBuf::from("."));
+                let shift_down = (GetAsyncKeyState(VK_SHIFT as i32) as u16 & 0x8000) != 0;
+                let alt_down = (GetAsyncKeyState(VK_MENU as i32) as u16 & 0x8000) != 0;
+                let win_down = (GetAsyncKeyState(VK_LWIN as i32) as u16 & 0x8000) != 0
+                    || (GetAsyncKeyState(VK_RWIN as i32) as u16 & 0x8000) != 0;
 
-                        let exe_path = if crate::core::shell::is_installed_in_windows() {
-                            PathBuf::from(r"C:\Windows\copyfile.exe")
-                        } else {
-                            std::env::current_exe()
-                                .unwrap_or_else(|_| PathBuf::from("copyfile.exe"))
-                        };
+                if shift_down || alt_down || win_down {
+                    // Don't intercept modified shortcuts like Ctrl+Shift+V
+                    // Fall through to CallNextHookEx
+                } else {
+                    let hwnd = GetForegroundWindow();
+                    if is_explorer_active_window(hwnd)
+                        && crate::core::clipboard::has_clipboard_files()
+                    {
+                        // Spawn CopyFile prompt in a separate background thread
+                        thread::spawn(|| {
+                            let dest_folder = crate::core::clipboard::get_active_explorer_path()
+                                .unwrap_or_else(|| PathBuf::from("."));
 
-                        let _ = std::process::Command::new(exe_path)
-                            .arg("--prompt-paste")
-                            .arg(dest_folder)
-                            .spawn();
-                    });
+                            let exe_path = if crate::core::shell::is_installed_in_windows() {
+                                PathBuf::from(r"C:\Windows\copyfile.exe")
+                            } else {
+                                std::env::current_exe()
+                                    .unwrap_or_else(|_| PathBuf::from("copyfile.exe"))
+                            };
 
-                    // RETURN 1 to EAT / SUPPRESS the keystroke:
-                    // This prevents Windows Explorer from receiving Ctrl+V and prevents it from copying!
-                    return 1;
+                            let _ = std::process::Command::new(exe_path)
+                                .arg("--prompt-paste")
+                                .arg(dest_folder)
+                                .spawn();
+                        });
+
+                        // RETURN 1 to EAT / SUPPRESS the keystroke:
+                        // This prevents Windows Explorer from receiving Ctrl+V and prevents it from copying!
+                        return 1;
+                    }
                 }
             }
         }

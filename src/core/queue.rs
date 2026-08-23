@@ -125,4 +125,28 @@ impl TransferQueue {
         self.jobs
             .retain(|j| j.status == QueueStatus::Waiting || j.status == QueueStatus::Running);
     }
+
+    /// Moves a job up in the queue.
+    pub fn move_up(&mut self, id: usize) {
+        if let Some(pos) = self.jobs.iter().position(|j| j.id == id) {
+            if pos > 0
+                && self.jobs[pos].status == QueueStatus::Waiting
+                && self.jobs[pos - 1].status == QueueStatus::Waiting
+            {
+                self.jobs.swap(pos, pos - 1);
+            }
+        }
+    }
+
+    /// Moves a job down in the queue.
+    pub fn move_down(&mut self, id: usize) {
+        if let Some(pos) = self.jobs.iter().position(|j| j.id == id) {
+            if pos + 1 < self.jobs.len()
+                && self.jobs[pos].status == QueueStatus::Waiting
+                && self.jobs[pos + 1].status == QueueStatus::Waiting
+            {
+                self.jobs.swap(pos, pos + 1);
+            }
+        }
+    }
 }

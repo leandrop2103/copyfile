@@ -70,6 +70,7 @@ pub struct CopyFileApp {
     list_filter: ListFilter,
     log_filter: LogFilter,
     search_query: String,
+    log_search_query: String,
     auto_scroll: bool,
 
     // Performance Speed History
@@ -127,6 +128,7 @@ impl Default for CopyFileApp {
             list_filter: ListFilter::All,
             log_filter: LogFilter::All,
             search_query: String::new(),
+            log_search_query: String::new(),
             auto_scroll: true,
             taskbar: crate::core::taskbar::TaskbarProgress::new(),
             hwnd: 0,
@@ -300,6 +302,9 @@ impl CopyFileApp {
             }
         }
 
+        self.total_bytes = retry_entries.iter().map(|e| e.size).sum();
+        self.copied_bytes = 0;
+        self.processed_bytes = 0;
         self.error_files_count = 0;
         self.is_running = true;
         self.is_paused = false;
@@ -879,9 +884,15 @@ impl eframe::App for CopyFileApp {
             }
             AppTab::Logs => {
                 let mut logs_cleared = false;
-                render_logs(ui, &self.logs, &mut self.log_filter, || {
-                    logs_cleared = true;
-                });
+                render_logs(
+                    ui,
+                    &self.logs,
+                    &mut self.log_filter,
+                    &mut self.log_search_query,
+                    || {
+                        logs_cleared = true;
+                    },
+                );
                 if logs_cleared {
                     self.logs.clear();
                 }
@@ -912,6 +923,7 @@ impl eframe::App for CopyFileApp {
                     self.error_files_count,
                     self.total_bytes,
                     self.copied_bytes,
+                    self.processed_bytes,
                     self.current_speed_bps,
                     self.average_speed_bps,
                     self.elapsed_time,

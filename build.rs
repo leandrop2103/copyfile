@@ -18,12 +18,10 @@ fn main() {
     res.set("OriginalFilename", "copyfile.exe");
     res.set("InternalName", "copyfile");
 
-    let is_release = std::env::var("PROFILE").is_ok_and(|p| p == "release");
-    let execution_level = if is_release {
-        "requireAdministrator"
-    } else {
-        "asInvoker"
-    };
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=assets/copyfile.ico");
+
+    let execution_level = "asInvoker";
 
     let manifest = format!(
         r#"

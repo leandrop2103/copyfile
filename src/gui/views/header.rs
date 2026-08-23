@@ -1,6 +1,7 @@
 //! Header view displaying path selectors, user presets, disk space, action buttons, and dual progress bars.
 
 use crate::core::disk::get_disk_space;
+pub use crate::core::format::{format_bytes, format_duration};
 use crate::core::profiles::{
     get_current_user_presets, get_presets_for_user_path, list_all_windows_users,
 };
@@ -9,44 +10,7 @@ use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, C
 use eframe::egui::{self, Color32, CornerRadius, ProgressBar, RichText, Stroke, Ui, Vec2};
 use std::path::PathBuf;
 use std::time::Duration;
-
-/// Formats byte counts into human-readable strings (e.g. "1.45 GB", "350 KB").
-#[must_use]
-pub fn format_bytes(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-    const TB: u64 = GB * 1024;
-
-    if bytes >= TB {
-        format!("{:.2} TB", bytes as f64 / TB as f64)
-    } else if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.2} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{bytes} B")
-    }
-}
-
-/// Formats duration into a concise time string (e.g. "2m 15s", "1h 05m").
-#[must_use]
-pub fn format_duration(dur: Duration) -> String {
-    let total_secs = dur.as_secs();
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-
-    if hours > 0 {
-        format!("{hours}h {minutes:02}m {seconds:02}s")
-    } else if minutes > 0 {
-        format!("{minutes}m {seconds:02}s")
-    } else {
-        format!("{seconds}s")
-    }
-}
+use std::time::Instant;
 
 /// Renders the top header section of CopyFile.
 #[allow(clippy::too_many_arguments)]
@@ -316,7 +280,24 @@ pub fn render_header(
             ui.add_space(6.0);
 
             // --- Row 2: Destination Header, Space Checking & Picker ---
-            let disk_space_info = destination.as_ref().and_then(|d| get_disk_space(d));
+            let mut disk_space_info = None;
+            if let Some(d) = destination.as_ref() {
+                type DiskCache = (Option<(u64, u64)>, Option<std::path::PathBuf>, Instant);
+                thread_local! {
+                    static DISK_CACHE: std::cell::RefCell<DiskCache> =
+                        std::cell::RefCell::new((None, None, Instant::now()));
+                }
+                disk_space_info = DISK_CACHE.with(|c| {
+                    let mut cache = c.borrow_mut();
+                    if cache.1.as_ref() != Some(d) || cache.2.elapsed().as_secs() >= 2 {
+                        let info = get_disk_space(d);
+                        cache.0 = info.map(|i| (i.available_bytes, i.total_bytes));
+                        cache.1 = Some(d.clone());
+                        cache.2 = Instant::now();
+                    }
+                    cache.0
+                });
+            }
 
             ui.horizontal(|ui| {
                 ui.label(RichText::new("🎯 Destino:").strong().size(16.0));
@@ -341,11 +322,11 @@ pub fn render_header(
                     let display_dst = dst.to_string_lossy().to_string();
                     let space_str = disk_space_info.map_or_else(
                         String::new,
-                        |info| {
+                        |(avail, total)| {
                             format!(
                                 "  (Livre: {} de {})",
-                                format_bytes(info.available_bytes),
-                                format_bytes(info.total_bytes)
+                                format_bytes(avail),
+                                format_bytes(total)
                             )
                         },
                     );
@@ -391,8 +372,8 @@ pub fn render_header(
             });
 
             // Pre-Flight Disk Space Warning Alert
-            if let Some(info) = disk_space_info {
-                if total_bytes > 0 && total_bytes > info.available_bytes {
+            if let Some((avail, _total)) = disk_space_info {
+                if total_bytes > 0 && total_bytes > avail {
                     ui.add_space(4.0);
                     egui::Frame::NONE
                         .fill(Color32::from_rgb(60, 20, 20))
@@ -405,7 +386,7 @@ pub fn render_header(
                                     RichText::new(format!(
                                         "⚠ ATENÇÃO: Espaço insuficiente na unidade de destino! Necessário: {} | Disponível: {}",
                                         format_bytes(total_bytes),
-                                        format_bytes(info.available_bytes)
+                                        format_bytes(avail)
                                     ))
                                     .color(COLOR_ERROR)
                                     .strong()

@@ -19,6 +19,14 @@ fn main() -> anyhow::Result<()> {
 
     // If CLI mode is requested
     if args.cli || (args.dest.is_some() && !args.sources.is_empty()) {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::Console::AttachConsole;
+            const ATTACH_PARENT_PROCESS: u32 = 0xFFFFFFFF;
+            unsafe {
+                AttachConsole(ATTACH_PARENT_PROCESS);
+            }
+        }
         return run_cli(args);
     }
 
@@ -32,8 +40,11 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Start paste interceptor in background while CopyFile is running
-    let paste_interceptor_enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    copyfile::core::start_paste_interceptor(paste_interceptor_enabled);
+    if copyfile::core::is_autostart_registered() {
+        let paste_interceptor_enabled =
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        copyfile::core::start_paste_interceptor(paste_interceptor_enabled);
+    }
 
     let mut initial_sources = args.sources;
     let mut initial_destination = args.dest;

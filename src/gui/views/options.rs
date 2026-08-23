@@ -160,7 +160,23 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                         ui.label(RichText::new("🖱 Integração com Windows Explorer e Sistema").strong().size(16.0));
                         ui.add_space(6.0);
 
-                        let is_registered = is_context_menu_registered();
+                        let (is_registered, mut is_autostart, in_windows) = {
+                            thread_local! {
+                                static OPT_CACHE: std::cell::RefCell<(std::time::Instant, bool, bool, bool)> =
+                                    std::cell::RefCell::new((std::time::Instant::now() - std::time::Duration::from_secs(100), false, false, false));
+                            }
+                            OPT_CACHE.with(|c| {
+                                let mut cache = c.borrow_mut();
+                                if cache.0.elapsed().as_secs() >= 2 {
+                                    cache.1 = is_context_menu_registered();
+                                    cache.2 = is_autostart_registered();
+                                    cache.3 = is_installed_in_windows();
+                                    cache.0 = std::time::Instant::now();
+                                }
+                                (cache.1, cache.2, cache.3)
+                            })
+                        };
+
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Menu de Contexto (Copiar & Colar):").size(14.0));
                             if is_registered {
@@ -185,7 +201,6 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                         ui.separator();
                         ui.add_space(8.0);
 
-                        let mut is_autostart = is_autostart_registered();
                         if ui.checkbox(&mut is_autostart, RichText::new("⚡ Interceptar Ctrl+V no Explorer (estilo TeraCopy)").size(13.5)).on_hover_text("Inicia o assistente de colar automaticamente ao pressionar Ctrl+V dentro de pastas do Windows").changed() {
                             let _ = set_autostart_registered(is_autostart);
                             if is_autostart {
@@ -210,7 +225,6 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                         ui.separator();
                         ui.add_space(8.0);
 
-                        let in_windows = is_installed_in_windows();
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Instalação C:\\Windows\\copyfile.exe:").size(14.0));
                             if in_windows {

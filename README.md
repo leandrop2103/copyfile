@@ -9,7 +9,7 @@ Construído em **Rust**, com aceleração multithread via **Rayon**, verificaç�
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?style=flat&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg?logo=windows)](https://microsoft.com/windows)
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
+[![Build Status](https://github.com/lpl2103/copyfile/actions/workflows/build-release.yml/badge.svg)](https://github.com/lpl2103/copyfile/actions/workflows/build-release.yml)
 
 ---
 
@@ -64,6 +64,41 @@ Construído em **Rust**, com aceleração multithread via **Rayon**, verificaç�
 
 ---
 
+## 💻 Uso via Linha de Comando (CLI)
+
+O CopyFile suporta execução headless via terminal:
+
+```bash
+# Copiar arquivos com verificação de integridade
+copyfile --cli --sources "C:\origem\pasta1" "C:\origem\pasta2" --dest "D:\backup"
+
+# Copiar sem verificação de hash (mais rápido)
+copyfile --cli --sources "C:\origem" --dest "D:\backup" --no-verify
+
+# Sobrescrever todos os arquivos existentes
+copyfile --cli --sources "C:\origem" --dest "D:\backup" --overwrite always
+
+# Parar na primeira falha
+copyfile --cli --sources "C:\origem" --dest "D:\backup" --fail-fast
+
+# Definir número de threads paralelas
+copyfile --cli --sources "C:\origem" --dest "D:\backup" --threads 8
+```
+
+### Flags Disponíveis
+| Flag | Descrição |
+|---|---|
+| `--cli` | Força modo linha de comando (sem interface gráfica) |
+| `--sources` | Caminhos de origem (arquivos ou pastas) |
+| `--dest` | Pasta de destino |
+| `--threads` | Número de threads paralelas (padrão: auto) |
+| `--no-verify` | Desabilita verificação xxHash3 |
+| `--fail-fast` | Para na primeira falha de cópia |
+| `--overwrite` | Política: `always`, `never`, `if-newer`, `if-differs` |
+| `--watch-paste` | Inicia daemon de interceptação de Ctrl+V |
+
+---
+
 ## 🖱️ Integração com Windows Explorer, Colar Inteligente & Menu de Contexto
 - **⚡ Colar com CopyFile (Estilo TeraCopy)**: Ao clicar com o botão direito no espaço em branco de qualquer pasta, Área de Trabalho ou unidade de disco, selecione **`⚡ Colar com CopyFile`** para colar arquivos copiados na Área de Transferência com validação xxHash3.
 - **Diálogo de Confirmação de Colar**: Permite escolher instantaneamente se deseja colar usando o **CopyFile** ou o **Windows Explorer** padrão.
@@ -82,7 +117,7 @@ Construído em **Rust**, com aceleração multithread via **Rayon**, verificaç�
 ### Como compilar:
 ```bash
 # Clonar o repositório
-git clone https://github.com/leandro-dev/copyfile.git
+git clone https://github.com/lpl2103/copyfile.git
 cd copyfile
 
 # Executar em modo desenvolvimento

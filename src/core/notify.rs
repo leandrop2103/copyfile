@@ -18,6 +18,17 @@ pub fn send_completion_notification(title: &str, message: &str, play_sound: bool
                 }
             }
 
+            let safe_title = title_owned
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;");
+            let safe_message = message_owned
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;");
+
             // Dispatch modern Windows Toast Notification via PowerShell WinRT XML
             let script = format!(
                 r#"
@@ -38,8 +49,8 @@ $xml.LoadXml($template)
 $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("CopyFile").Show($toast)
 "#,
-                title = title_owned.replace('"', "`\""),
-                message = message_owned.replace('"', "`\"")
+                title = safe_title,
+                message = safe_message
             );
 
             let _ = std::process::Command::new("powershell.exe")

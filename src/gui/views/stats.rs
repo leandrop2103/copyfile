@@ -14,6 +14,7 @@ pub fn render_stats(
     error_files: usize,
     total_bytes: u64,
     copied_bytes: u64,
+    processed_bytes: u64,
     current_speed_bps: f64,
     average_speed_bps: f64,
     elapsed: Duration,
@@ -120,7 +121,7 @@ pub fn render_stats(
 
                     ui.horizontal(|ui| {
                         ui.label("Volume Transferido:");
-                        let remaining_bytes = total_bytes.saturating_sub(copied_bytes);
+                        let remaining_bytes = total_bytes.saturating_sub(processed_bytes);
                         ui.label(
                             RichText::new(format!(
                                 "{} / {} (Restam {})",
