@@ -20,6 +20,59 @@ struct KbdLlHookStruct {
 }
 
 #[cfg(windows)]
+fn is_explorer_active_window(hwnd: windows_sys::Win32::Foundation::HWND) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::ProcessStatus::GetProcessImageFileNameW;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetWindowThreadProcessId};
+
+    if hwnd.is_null() {
+        return false;
+    }
+
+    // 1. Fast check by window class name
+    let mut class_buf = [0u16; 256];
+    let len = unsafe { GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32) };
+    if len > 0 {
+        let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
+        if class_name == "CabinetWClass"
+            || class_name == "ExploreWClass"
+            || class_name == "Progman"
+            || class_name == "WorkerW"
+            || class_name == "ShellTabWindowClass"
+            || class_name == "DirectUIHWND"
+            || class_name == "SHELLDLL_DefView"
+            || class_name == "SysListView32"
+        {
+            return true;
+        }
+    }
+
+    // 2. Comprehensive check by process executable name
+    let mut pid: u32 = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+    if pid == 0 {
+        return false;
+    }
+
+    let h_proc = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if h_proc.is_null() {
+        return false;
+    }
+
+    let mut buf = [0u16; 512];
+    let len = unsafe { GetProcessImageFileNameW(h_proc, buf.as_mut_ptr(), buf.len() as u32) };
+    unsafe { CloseHandle(h_proc) };
+
+    if len > 0 {
+        let path_str = String::from_utf16_lossy(&buf[..len as usize]).to_lowercase();
+        path_str.ends_with("explorer.exe")
+    } else {
+        false
+    }
+}
+
+#[cfg(windows)]
 unsafe extern "system" fn low_level_keyboard_proc(
     n_code: i32,
     w_param: usize,
@@ -27,7 +80,7 @@ unsafe extern "system" fn low_level_keyboard_proc(
 ) -> isize {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, GetClassNameW, GetForegroundWindow, WM_KEYDOWN, WM_SYSKEYDOWN,
+        CallNextHookEx, GetForegroundWindow, WM_KEYDOWN, WM_SYSKEYDOWN,
     };
 
     if n_code >= 0
@@ -42,42 +95,29 @@ unsafe extern "system" fn low_level_keyboard_proc(
 
             if ctrl_down {
                 let hwnd = GetForegroundWindow();
-                if !hwnd.is_null() {
-                    let mut class_buf = [0u16; 256];
-                    let len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32);
+                if is_explorer_active_window(hwnd) && crate::core::clipboard::has_clipboard_files()
+                {
+                    // Spawn CopyFile prompt in a separate background thread
+                    thread::spawn(|| {
+                        let dest_folder = crate::core::clipboard::get_active_explorer_path()
+                            .unwrap_or_else(|| PathBuf::from("."));
 
-                    if len > 0 {
-                        let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
-                        let is_explorer = class_name == "CabinetWClass"
-                            || class_name == "ExploreWClass"
-                            || class_name == "Progman"
-                            || class_name == "WorkerW";
+                        let exe_path = if crate::core::shell::is_installed_in_windows() {
+                            PathBuf::from(r"C:\Windows\copyfile.exe")
+                        } else {
+                            std::env::current_exe()
+                                .unwrap_or_else(|_| PathBuf::from("copyfile.exe"))
+                        };
 
-                        if is_explorer && crate::core::clipboard::has_clipboard_files() {
-                            // Spawn CopyFile prompt in a separate background thread
-                            thread::spawn(|| {
-                                let dest_folder =
-                                    crate::core::clipboard::get_active_explorer_path()
-                                        .unwrap_or_else(|| PathBuf::from("."));
+                        let _ = std::process::Command::new(exe_path)
+                            .arg("--prompt-paste")
+                            .arg(dest_folder)
+                            .spawn();
+                    });
 
-                                let exe_path = if crate::core::shell::is_installed_in_windows() {
-                                    PathBuf::from(r"C:\Windows\copyfile.exe")
-                                } else {
-                                    std::env::current_exe()
-                                        .unwrap_or_else(|_| PathBuf::from("copyfile.exe"))
-                                };
-
-                                let _ = std::process::Command::new(exe_path)
-                                    .arg("--prompt-paste")
-                                    .arg(dest_folder)
-                                    .spawn();
-                            });
-
-                            // RETURN 1 to EAT / SUPPRESS the keystroke:
-                            // This prevents Windows Explorer from receiving Ctrl+V and prevents it from copying!
-                            return 1;
-                        }
-                    }
+                    // RETURN 1 to EAT / SUPPRESS the keystroke:
+                    // This prevents Windows Explorer from receiving Ctrl+V and prevents it from copying!
+                    return 1;
                 }
             }
         }

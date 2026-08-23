@@ -188,6 +188,22 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                         let mut is_autostart = is_autostart_registered();
                         if ui.checkbox(&mut is_autostart, RichText::new("⚡ Interceptar Ctrl+V no Explorer (estilo TeraCopy)").size(13.5)).on_hover_text("Inicia o assistente de colar automaticamente ao pressionar Ctrl+V dentro de pastas do Windows").changed() {
                             let _ = set_autostart_registered(is_autostart);
+                            if is_autostart {
+                                #[cfg(windows)]
+                                {
+                                    use std::os::windows::process::CommandExt;
+                                    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                                    let exe_path = if crate::core::shell::is_installed_in_windows() {
+                                        std::path::PathBuf::from(r"C:\Windows\copyfile.exe")
+                                    } else {
+                                        std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("copyfile.exe"))
+                                    };
+                                    let _ = std::process::Command::new(exe_path)
+                                        .arg("--watch-paste")
+                                        .creation_flags(CREATE_NO_WINDOW)
+                                        .spawn();
+                                }
+                            }
                         }
 
                         ui.add_space(8.0);
