@@ -38,12 +38,14 @@ fn main() -> anyhow::Result<()> {
     let mut initial_sources = args.sources;
     let mut initial_destination = args.dest;
     let mut prompt_paste = false;
+    let mut auto_start = false;
 
     if let Some(dest_dir) = args.paste_to {
         let clip_files = copyfile::core::get_clipboard_files();
         if !clip_files.is_empty() {
             initial_sources = clip_files;
             initial_destination = Some(dest_dir);
+            auto_start = true;
         }
     } else if let Some(dest_dir) = args.prompt_paste {
         let clip_files = copyfile::core::get_clipboard_files();
@@ -77,6 +79,7 @@ fn main() -> anyhow::Result<()> {
                 initial_sources,
                 initial_destination,
                 prompt_paste,
+                auto_start,
             )))
         }),
     )

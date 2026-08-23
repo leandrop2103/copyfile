@@ -86,6 +86,7 @@ pub struct CopyFileApp {
     show_sources_manager: bool,
     show_paste_prompt_modal: bool,
     needs_focus: bool,
+    auto_start: bool,
     sources_search_query: String,
 }
 
@@ -133,6 +134,7 @@ impl Default for CopyFileApp {
             show_sources_manager: false,
             show_paste_prompt_modal: false,
             needs_focus: true,
+            auto_start: false,
             sources_search_query: String::new(),
         }
     }
@@ -146,6 +148,7 @@ impl CopyFileApp {
         initial_sources: Vec<PathBuf>,
         initial_destination: Option<PathBuf>,
         prompt_paste: bool,
+        auto_start: bool,
     ) -> Self {
         configure_theme(&cc.egui_ctx);
         Self {
@@ -153,7 +156,27 @@ impl CopyFileApp {
             destination: initial_destination,
             show_paste_prompt_modal: prompt_paste,
             needs_focus: true,
+            auto_start,
             ..Default::default()
+        }
+    }
+
+    /// Prevents or restores Windows system sleep / hibernation during file transfers.
+    fn set_system_sleep_prevented(prevent: bool) {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::Power::{
+                SetThreadExecutionState, ES_AWAYMODE_REQUIRED, ES_CONTINUOUS, ES_SYSTEM_REQUIRED,
+            };
+            unsafe {
+                if prevent {
+                    SetThreadExecutionState(
+                        ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED,
+                    );
+                } else {
+                    SetThreadExecutionState(ES_CONTINUOUS);
+                }
+            }
         }
     }
 
@@ -166,6 +189,8 @@ impl CopyFileApp {
         if self.sources.is_empty() {
             return;
         }
+
+        Self::set_system_sleep_prevented(true);
 
         self.is_running = true;
         self.is_paused = false;
@@ -284,6 +309,8 @@ impl CopyFileApp {
         self.last_speed_sample = Instant::now();
         self.bytes_since_last_sample = 0;
 
+        Self::set_system_sleep_prevented(true);
+
         let config = self.config.clone();
         let controller = self.controller.clone();
         let event_tx = self.event_tx.clone();
@@ -317,6 +344,7 @@ impl CopyFileApp {
 
     /// Cancels active copy process.
     pub fn cancel_copy(&mut self) {
+        Self::set_system_sleep_prevented(false);
         self.controller.cancel();
         self.is_running = false;
         self.is_paused = false;
@@ -451,6 +479,7 @@ impl CopyFileApp {
                     self.error_files_count += 1;
                 }
                 CopyEvent::AllCompleted { total_duration } => {
+                    Self::set_system_sleep_prevented(false);
                     self.is_running = false;
                     self.is_paused = false;
                     self.elapsed_time = total_duration;
@@ -719,6 +748,11 @@ impl eframe::App for CopyFileApp {
                     }
                 }
             }
+        }
+
+        if self.auto_start && !self.sources.is_empty() && self.destination.is_some() {
+            self.auto_start = false;
+            self.start_copy();
         }
 
         if self.is_running {
