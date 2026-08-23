@@ -403,3 +403,170 @@ fn test_clipboard_functions() {
     let _ = has_clipboard_files();
     let _ = get_clipboard_files();
 }
+
+#[test]
+fn test_zero_byte_files() {
+    let (src, dst) = setup_temp_dir("zero_byte");
+    let zero_file = src.join("empty.txt");
+    fs::write(&zero_file, b"").unwrap();
+
+    let (entries, total_bytes) = scan_sources(std::slice::from_ref(&src), &dst);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(total_bytes, 0);
+
+    let (tx, rx) = unbounded();
+    let controller = CopyController::new();
+    let config = CopyConfig {
+        verify_checksum: true,
+        ..Default::default()
+    };
+
+    run_copy_batch(entries, config, controller, tx);
+
+    let mut completed = 0;
+    while let Ok(event) = rx.recv() {
+        if let CopyEvent::FileCompleted { .. } = event {
+            completed += 1;
+        }
+    }
+
+    assert_eq!(completed, 1);
+    let dst_file = dst.join("src").join("empty.txt");
+    assert!(dst_file.exists());
+    assert_eq!(fs::metadata(&dst_file).unwrap().len(), 0);
+}
+
+#[test]
+fn test_queue_reorder_move_up_and_down() {
+    use copyfile::core::queue::TransferQueue;
+
+    let mut queue = TransferQueue::new();
+    let id1 = queue.enqueue(
+        vec![PathBuf::from("C:\\job1")],
+        PathBuf::from("D:\\dst1"),
+        CopyConfig::default(),
+    );
+    let id2 = queue.enqueue(
+        vec![PathBuf::from("C:\\job2")],
+        PathBuf::from("D:\\dst2"),
+        CopyConfig::default(),
+    );
+    let id3 = queue.enqueue(
+        vec![PathBuf::from("C:\\job3")],
+        PathBuf::from("D:\\dst3"),
+        CopyConfig::default(),
+    );
+
+    // Initial order: [id1, id2, id3]
+    assert_eq!(queue.jobs()[0].id, id1);
+    assert_eq!(queue.jobs()[1].id, id2);
+    assert_eq!(queue.jobs()[2].id, id3);
+
+    // Move id2 up -> [id2, id1, id3]
+    queue.move_up(id2);
+    assert_eq!(queue.jobs()[0].id, id2);
+    assert_eq!(queue.jobs()[1].id, id1);
+    assert_eq!(queue.jobs()[2].id, id3);
+
+    // Move id2 down -> [id1, id2, id3]
+    queue.move_down(id2);
+    assert_eq!(queue.jobs()[0].id, id1);
+    assert_eq!(queue.jobs()[1].id, id2);
+    assert_eq!(queue.jobs()[2].id, id3);
+
+    // Move first item up should do nothing
+    queue.move_up(id1);
+    assert_eq!(queue.jobs()[0].id, id1);
+
+    // Move last item down should do nothing
+    queue.move_down(id3);
+    assert_eq!(queue.jobs()[2].id, id3);
+}
+
+#[test]
+fn test_case_insensitive_mirror_sync_preserves_match() {
+    use copyfile::core::scanner::find_mirror_orphan_entries;
+
+    let (src, dst) = setup_temp_dir("case_mirror");
+    let file_src = src.join("MeuArquivo.TXT");
+    fs::write(&file_src, "Dados importantes").unwrap();
+
+    let dst_src = dst.join("src");
+    fs::create_dir_all(&dst_src).unwrap();
+    let file_dst = dst_src.join("meuarquivo.txt");
+    fs::write(&file_dst, "Dados importantes").unwrap();
+
+    let (entries, _) = scan_sources(std::slice::from_ref(&src), &dst);
+    assert_eq!(entries.len(), 1);
+
+    let orphans = find_mirror_orphan_entries(std::slice::from_ref(&src), &dst, &entries);
+    // On Windows / NTFS, different case of same filename must NOT be treated as orphan
+    assert_eq!(orphans.len(), 0);
+}
+
+#[test]
+fn test_overwrite_policy_never() {
+    let (src, dst) = setup_temp_dir("overwrite_never");
+    let file_src = src.join("existente.txt");
+    fs::write(&file_src, "Novo conteudo").unwrap();
+
+    let dst_src = dst.join("src");
+    fs::create_dir_all(&dst_src).unwrap();
+    let file_dst = dst_src.join("existente.txt");
+    fs::write(&file_dst, "Conteudo antigo preservado").unwrap();
+
+    let (entries, _) = scan_sources(std::slice::from_ref(&src), &dst);
+
+    let (tx, rx) = unbounded();
+    let controller = CopyController::new();
+    let config = CopyConfig {
+        overwrite_policy: OverwritePolicy::Never,
+        ..Default::default()
+    };
+
+    run_copy_batch(entries, config, controller, tx);
+
+    let mut skipped = 0;
+    while let Ok(event) = rx.recv() {
+        if let CopyEvent::FileSkipped { .. } = event {
+            skipped += 1;
+        }
+    }
+
+    assert_eq!(skipped, 1);
+    assert_eq!(
+        fs::read_to_string(&file_dst).unwrap(),
+        "Conteudo antigo preservado"
+    );
+}
+
+#[test]
+fn test_controller_cancel_and_pause() {
+    let controller = CopyController::new();
+    assert!(!controller.is_paused());
+    assert!(!controller.is_cancelled());
+
+    controller.set_paused(true);
+    assert!(controller.is_paused());
+
+    controller.set_paused(false);
+    assert!(!controller.is_paused());
+
+    controller.cancel();
+    assert!(controller.is_cancelled());
+}
+
+#[test]
+fn test_formatting_utilities() {
+    use copyfile::core::format::{format_bytes, format_duration};
+    use std::time::Duration;
+
+    assert_eq!(format_bytes(0), "0 B");
+    assert_eq!(format_bytes(1024), "1.0 KB");
+    assert_eq!(format_bytes(1024 * 1024), "1.00 MB");
+    assert_eq!(format_bytes(1024 * 1024 * 1024), "1.00 GB");
+
+    assert_eq!(format_duration(Duration::from_millis(500)), "0s");
+    assert_eq!(format_duration(Duration::from_secs(65)), "1m 05s");
+    assert_eq!(format_duration(Duration::from_secs(3665)), "1h 01m 05s");
+}
