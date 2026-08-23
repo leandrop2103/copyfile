@@ -162,13 +162,26 @@ pub fn render_file_list(
         return;
     }
 
-    // Find first active copying file for auto-scrolling
-    let active_row_idx = filtered_indices.iter().position(|&idx| {
-        matches!(
-            entries[idx].status,
-            FileStatus::Copying { .. } | FileStatus::Verifying
-        )
-    });
+    // Find active copying file or most recently processed file for auto-scrolling
+    let active_row_idx = if is_running {
+        // Priority 1: Currently copying or verifying file
+        filtered_indices
+            .iter()
+            .position(|&idx| {
+                matches!(
+                    entries[idx].status,
+                    FileStatus::Copying { .. } | FileStatus::Verifying
+                )
+            })
+            // Priority 2: Most recently processed file (Success, Skipped with xxHash match, Error)
+            .or_else(|| {
+                filtered_indices
+                    .iter()
+                    .rposition(|&idx| !matches!(entries[idx].status, FileStatus::Pending))
+            })
+    } else {
+        None
+    };
 
     // --- Excel-like Scrollable Table with Horizontal & Vertical Freedom ---
     ScrollArea::horizontal()
