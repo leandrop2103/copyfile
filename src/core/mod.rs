@@ -13,6 +13,7 @@ pub mod scanner;
 pub mod shell;
 pub mod taskbar;
 pub mod types;
+pub mod updater;
 
 pub use clipboard::{get_active_explorer_path, get_clipboard_files, has_clipboard_files};
 pub use copier::{run_copy_batch, CopyController};
@@ -27,3 +28,6 @@ pub use scanner::scan_sources;
 pub use shell::{is_context_menu_registered, register_context_menu, unregister_context_menu};
 pub use taskbar::{TaskbarProgress, TaskbarState};
 pub use types::*;
+pub use updater::{
+    check_for_updates, clean_old_update_files, perform_auto_update, RemoteVersionInfo, UpdateStatus,
+};

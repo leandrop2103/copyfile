@@ -7,6 +7,9 @@ use copyfile::gui::CopyFileApp;
 use eframe::egui::Vec2;
 
 fn main() -> anyhow::Result<()> {
+    // Clean any temporary update files (.exe.old / .exe.new)
+    copyfile::core::clean_old_update_files();
+
     // Initialize tracing subscriber for structured logs
     tracing_subscriber::fmt()
         .with_env_filter(

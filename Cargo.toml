@@ -1,6 +1,6 @@
 [package]
 name = "copyfile"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 authors = ["Leandro", "Gemini"]
 description = "Ultra-fast parallel file backup and transfer tool with TeraCopy-inspired GUI and xxHash3 verification"
@@ -32,6 +32,8 @@ anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 chrono = "0.4"
 humansize = "2.1"
+serde_json = "1.0"
+ureq = "2.10"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

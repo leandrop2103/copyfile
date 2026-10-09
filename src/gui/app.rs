@@ -89,6 +89,10 @@ pub struct CopyFileApp {
     needs_focus: bool,
     auto_start: bool,
     sources_search_query: String,
+
+    // Auto-Updater State
+    pub available_update: std::sync::Arc<std::sync::Mutex<Option<crate::core::RemoteVersionInfo>>>,
+    pub update_status: std::sync::Arc<std::sync::Mutex<crate::core::UpdateStatus>>,
 }
 
 impl Default for CopyFileApp {
@@ -138,6 +142,10 @@ impl Default for CopyFileApp {
             needs_focus: true,
             auto_start: false,
             sources_search_query: String::new(),
+            available_update: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            update_status: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::core::UpdateStatus::Idle,
+            )),
         }
     }
 }
@@ -153,14 +161,72 @@ impl CopyFileApp {
         auto_start: bool,
     ) -> Self {
         configure_theme(&cc.egui_ctx);
+
+        let available_update = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let update_status =
+            std::sync::Arc::new(std::sync::Mutex::new(crate::core::UpdateStatus::Idle));
+
+        // Checagem assíncrona de atualização no GitHub ao iniciar
+        let available_update_bg = std::sync::Arc::clone(&available_update);
+        let ctx_bg = cc.egui_ctx.clone();
+        std::thread::spawn(move || {
+            if let Some(info) = crate::core::check_for_updates() {
+                if let Ok(mut lock) = available_update_bg.lock() {
+                    *lock = Some(info);
+                }
+                ctx_bg.request_repaint();
+            }
+        });
+
         Self {
             sources: initial_sources,
             destination: initial_destination,
             show_paste_prompt_modal: prompt_paste,
             needs_focus: true,
             auto_start,
+            available_update,
+            update_status,
             ..Default::default()
         }
+    }
+
+    /// Dispara o processo de auto-atualização em background thread.
+    pub fn trigger_auto_update(&self) {
+        let update_status = std::sync::Arc::clone(&self.update_status);
+        let download_url = self
+            .available_update
+            .lock()
+            .ok()
+            .and_then(|l| l.as_ref().map(|info| info.download_url.clone()));
+
+        std::thread::spawn(move || {
+            let update_status_clone = std::sync::Arc::clone(&update_status);
+            let result = crate::core::perform_auto_update(download_url, move |status| {
+                if let Ok(mut lock) = update_status_clone.lock() {
+                    *lock = status;
+                }
+            });
+
+            if let Err(err) = result {
+                if let Ok(mut lock) = update_status.lock() {
+                    *lock = crate::core::UpdateStatus::Error(format!("{:#}", err));
+                }
+            }
+        });
+    }
+
+    /// Verifica manualmente por atualizações no GitHub.
+    pub fn check_updates_manual(&self, ctx: &egui::Context) {
+        let available_update_bg = std::sync::Arc::clone(&self.available_update);
+        let ctx_bg = ctx.clone();
+        std::thread::spawn(move || {
+            if let Some(info) = crate::core::check_for_updates() {
+                if let Ok(mut lock) = available_update_bg.lock() {
+                    *lock = Some(info);
+                }
+            }
+            ctx_bg.request_repaint();
+        });
     }
 
     /// Prevents or restores Windows system sleep / hibernation during file transfers.
@@ -857,10 +923,22 @@ impl eframe::App for CopyFileApp {
                 let logs_title = format!("📜 Registro / Log ({})", self.logs.len());
                 let queue_title = format!("📑 Fila ({})", self.transfer_queue.waiting_count());
 
+                let has_update = self
+                    .available_update
+                    .lock()
+                    .ok()
+                    .and_then(|l| l.as_ref().map(|i| i.version.clone()));
+
+                let options_title = if let Some(ver) = &has_update {
+                    format!("⚙ Opções (⚡ v{ver} disponível!)")
+                } else {
+                    "⚙ Opções".to_string()
+                };
+
                 ui.selectable_value(&mut self.active_tab, AppTab::FileList, list_title);
                 ui.selectable_value(&mut self.active_tab, AppTab::Logs, logs_title);
                 ui.selectable_value(&mut self.active_tab, AppTab::Queue, queue_title);
-                ui.selectable_value(&mut self.active_tab, AppTab::Options, "⚙ Opções");
+                ui.selectable_value(&mut self.active_tab, AppTab::Options, options_title);
                 ui.selectable_value(&mut self.active_tab, AppTab::Stats, "📊 Estatísticas");
             });
         });
@@ -912,7 +990,32 @@ impl eframe::App for CopyFileApp {
                 }
             }
             AppTab::Options => {
-                render_options(ui, &mut self.config, self.is_running);
+                let available_update = self.available_update.lock().ok().and_then(|l| l.clone());
+                let update_status = self
+                    .update_status
+                    .lock()
+                    .ok()
+                    .map(|l| l.clone())
+                    .unwrap_or(crate::core::UpdateStatus::Idle);
+                let mut trigger_update = false;
+                let mut check_update = false;
+
+                render_options(
+                    ui,
+                    &mut self.config,
+                    self.is_running,
+                    &available_update,
+                    &update_status,
+                    || trigger_update = true,
+                    || check_update = true,
+                );
+
+                if trigger_update {
+                    self.trigger_auto_update();
+                }
+                if check_update {
+                    self.check_updates_manual(ctx);
+                }
             }
             AppTab::Stats => {
                 render_stats(

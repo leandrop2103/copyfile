@@ -10,7 +10,18 @@ use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, C
 use eframe::egui::{self, Color32, CornerRadius, RichText, ScrollArea, Slider, Stroke, Ui};
 
 /// Renders the options / preferences view and the About card.
-pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
+#[allow(clippy::too_many_arguments)]
+pub fn render_options(
+    ui: &mut Ui,
+    config: &mut CopyConfig,
+    is_running: bool,
+    available_update: &Option<crate::core::RemoteVersionInfo>,
+    update_status: &crate::core::UpdateStatus,
+    on_trigger_update: impl FnOnce(),
+    on_check_update: impl FnOnce(),
+) {
+    let mut trigger_update_called = false;
+    let mut check_update_called = false;
     ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -263,7 +274,7 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                     .show(col_right, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("⚡ CopyFile").strong().size(22.0).color(COLOR_ACCENT));
-                            ui.label(RichText::new("v1.0.0").small().color(COLOR_MUTED));
+                            ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(COLOR_MUTED));
                         });
 
                         ui.add_space(4.0);
@@ -272,6 +283,81 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                                 .size(13.5)
                                 .color(Color32::from_rgb(203, 213, 225)),
                         );
+
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+
+                        // --- Card de Atualização Automática ---
+                        ui.label(RichText::new("🔄 Atualização do Sistema").strong().size(15.0));
+                        ui.add_space(4.0);
+                        egui::Frame::NONE
+                            .fill(Color32::from_rgb(30, 41, 59))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
+                            .corner_radius(CornerRadius::same(6))
+                            .inner_margin(egui::Margin::symmetric(10, 8))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("Versão Instalada:").size(13.5));
+                                    ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).monospace().strong());
+                                });
+
+                                if let Some(info) = available_update {
+                                    ui.add_space(4.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new("Versão no GitHub:").size(13.5));
+                                        ui.label(RichText::new(format!("v{}", info.version)).monospace().strong().color(COLOR_SUCCESS));
+                                        ui.label(RichText::new("(Nova versão disponível!)").small().color(COLOR_SUCCESS));
+                                    });
+                                    if !info.release_notes.is_empty() {
+                                        ui.add_space(2.0);
+                                        ui.label(RichText::new(&info.release_notes).small().italics().color(Color32::from_rgb(148, 163, 184)));
+                                    }
+                                } else {
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new("Status:").size(13.5));
+                                        ui.label(RichText::new("Você está na versão mais recente.").size(13.5).color(COLOR_SUCCESS));
+                                    });
+                                }
+
+                                ui.add_space(8.0);
+                                match update_status {
+                                    crate::core::UpdateStatus::Idle => {
+                                        ui.horizontal(|ui| {
+                                            if let Some(info) = available_update {
+                                                let btn_update = egui::Button::new(
+                                                    RichText::new(format!("⬇ Baixar e Atualizar para v{}", info.version))
+                                                        .strong()
+                                                        .color(Color32::WHITE),
+                                                )
+                                                .fill(Color32::from_rgb(0, 140, 60));
+
+                                                if ui.add(btn_update).clicked() {
+                                                    trigger_update_called = true;
+                                                }
+                                            }
+
+                                            if ui.button(RichText::new("🔄 Verificar Atualizações").size(13.0)).clicked() {
+                                                check_update_called = true;
+                                            }
+                                        });
+                                    }
+                                    crate::core::UpdateStatus::Downloading(prog) => {
+                                        ui.label(RichText::new(format!("Baixando nova versão... ({:.0}%)", prog * 100.0)).size(13.5));
+                                        ui.add(egui::ProgressBar::new(*prog).animate(true));
+                                    }
+                                    crate::core::UpdateStatus::Success(msg) => {
+                                        ui.label(RichText::new(msg).color(COLOR_SUCCESS).strong().size(13.5));
+                                    }
+                                    crate::core::UpdateStatus::Error(err) => {
+                                        ui.label(RichText::new(format!("Erro ao atualizar: {err}")).color(COLOR_ERROR).size(13.0));
+                                        ui.add_space(4.0);
+                                        if ui.button(RichText::new("🔁 Tentar Novamente").size(13.0)).clicked() {
+                                            trigger_update_called = true;
+                                        }
+                                    }
+                                }
+                            });
 
                         ui.add_space(10.0);
                         ui.separator();
@@ -332,6 +418,13 @@ pub fn render_options(ui: &mut Ui, config: &mut CopyConfig, is_running: bool) {
                         });
                     });
             });
+
+            if trigger_update_called {
+                on_trigger_update();
+            }
+            if check_update_called {
+                on_check_update();
+            }
 
             ui.add_space(20.0);
         });
