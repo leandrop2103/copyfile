@@ -10,7 +10,7 @@ use crate::gui::views::{
     render_queue_view, render_stats, ListFilter, LogFilter, SpeedHistory,
 };
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use eframe::egui::{self, CentralPanel, TopBottomPanel};
+use eframe::egui::{self, CentralPanel, Color32, RichText, TopBottomPanel};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -86,6 +86,7 @@ pub struct CopyFileApp {
     show_completion_modal: bool,
     show_sources_manager: bool,
     show_paste_prompt_modal: bool,
+    pub show_about_modal: bool,
     needs_focus: bool,
     auto_start: bool,
     sources_search_query: String,
@@ -139,6 +140,7 @@ impl Default for CopyFileApp {
             show_completion_modal: false,
             show_sources_manager: false,
             show_paste_prompt_modal: false,
+            show_about_modal: false,
             needs_focus: true,
             auto_start: false,
             sources_search_query: String::new(),
@@ -923,23 +925,52 @@ impl eframe::App for CopyFileApp {
                 let logs_title = format!("📜 Registro / Log ({})", self.logs.len());
                 let queue_title = format!("📑 Fila ({})", self.transfer_queue.waiting_count());
 
-                let has_update = self
-                    .available_update
-                    .lock()
-                    .ok()
-                    .and_then(|l| l.as_ref().map(|i| i.version.clone()));
-
-                let options_title = if let Some(ver) = &has_update {
-                    format!("⚙ Opções (⚡ v{ver} disponível!)")
-                } else {
-                    "⚙ Opções".to_string()
-                };
-
                 ui.selectable_value(&mut self.active_tab, AppTab::FileList, list_title);
                 ui.selectable_value(&mut self.active_tab, AppTab::Logs, logs_title);
                 ui.selectable_value(&mut self.active_tab, AppTab::Queue, queue_title);
-                ui.selectable_value(&mut self.active_tab, AppTab::Options, options_title);
+                ui.selectable_value(&mut self.active_tab, AppTab::Options, "⚙ Opções");
                 ui.selectable_value(&mut self.active_tab, AppTab::Stats, "📊 Estatísticas");
+
+                // Lado Direito: Botão "Sobre" e Alerta de Atualização
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let about_btn = egui::Button::new(
+                        RichText::new("ℹ Sobre")
+                            .size(13.5)
+                            .strong()
+                            .color(Color32::from_rgb(226, 232, 240)),
+                    );
+                    if ui
+                        .add(about_btn)
+                        .on_hover_text("Informações do programa, versão e atualização")
+                        .clicked()
+                    {
+                        self.show_about_modal = true;
+                    }
+
+                    let has_update = self
+                        .available_update
+                        .lock()
+                        .ok()
+                        .and_then(|l| l.as_ref().map(|i| i.version.clone()));
+
+                    if let Some(ver) = has_update {
+                        let update_pill = egui::Button::new(
+                            RichText::new(format!("⚡ Atualização v{ver} disponível!"))
+                                .strong()
+                                .size(13.0)
+                                .color(Color32::WHITE),
+                        )
+                        .fill(Color32::from_rgb(0, 150, 60));
+
+                        if ui
+                            .add(update_pill)
+                            .on_hover_text("Nova versão detectada! Clique para ver e atualizar")
+                            .clicked()
+                        {
+                            self.show_about_modal = true;
+                        }
+                    }
+                });
             });
         });
 
@@ -999,6 +1030,7 @@ impl eframe::App for CopyFileApp {
                     .unwrap_or(crate::core::UpdateStatus::Idle);
                 let mut trigger_update = false;
                 let mut check_update = false;
+                let mut open_about = false;
 
                 render_options(
                     ui,
@@ -1008,6 +1040,7 @@ impl eframe::App for CopyFileApp {
                     &update_status,
                     || trigger_update = true,
                     || check_update = true,
+                    || open_about = true,
                 );
 
                 if trigger_update {
@@ -1015,6 +1048,9 @@ impl eframe::App for CopyFileApp {
                 }
                 if check_update {
                     self.check_updates_manual(ctx);
+                }
+                if open_about {
+                    self.show_about_modal = true;
                 }
             }
             AppTab::Stats => {
@@ -1117,6 +1153,35 @@ impl eframe::App for CopyFileApp {
                         .spawn();
                 }
                 std::process::exit(0);
+            }
+        }
+
+        // --- About & Auto-Updater Modal Dialog ---
+        if self.show_about_modal {
+            let available_update = self.available_update.lock().ok().and_then(|l| l.clone());
+            let update_status = self
+                .update_status
+                .lock()
+                .ok()
+                .map(|l| l.clone())
+                .unwrap_or(crate::core::UpdateStatus::Idle);
+            let mut trigger_update = false;
+            let mut check_update = false;
+
+            crate::gui::views::render_about_modal(
+                ctx,
+                &mut self.show_about_modal,
+                &available_update,
+                &update_status,
+                || trigger_update = true,
+                || check_update = true,
+            );
+
+            if trigger_update {
+                self.trigger_auto_update();
+            }
+            if check_update {
+                self.check_updates_manual(ctx);
             }
         }
     }

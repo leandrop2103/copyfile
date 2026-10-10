@@ -19,9 +19,11 @@ pub fn render_options(
     update_status: &crate::core::UpdateStatus,
     on_trigger_update: impl FnOnce(),
     on_check_update: impl FnOnce(),
+    on_open_about: impl FnOnce(),
 ) {
     let mut trigger_update_called = false;
     let mut check_update_called = false;
+    let mut open_about_called = false;
     ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -275,6 +277,15 @@ pub fn render_options(
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("⚡ CopyFile").strong().size(22.0).color(COLOR_ACCENT));
                             ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(COLOR_MUTED));
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let btn = egui::Button::new(
+                                    RichText::new("ℹ Janela Sobre").size(13.0).strong(),
+                                );
+                                if ui.add(btn).on_hover_text("Abrir janela modal Sobre com dados do sistema").clicked() {
+                                    open_about_called = true;
+                                }
+                            });
                         });
 
                         ui.add_space(4.0);
@@ -424,6 +435,9 @@ pub fn render_options(
             }
             if check_update_called {
                 on_check_update();
+            }
+            if open_about_called {
+                on_open_about();
             }
 
             ui.add_space(20.0);

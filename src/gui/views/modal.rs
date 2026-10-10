@@ -564,3 +564,220 @@ pub fn render_paste_prompt_modal(
         on_paste_with_explorer();
     }
 }
+
+/// Renders the About & Auto-Updater modal dialog.
+pub fn render_about_modal(
+    ctx: &egui::Context,
+    is_open: &mut bool,
+    available_update: &Option<crate::core::RemoteVersionInfo>,
+    update_status: &crate::core::UpdateStatus,
+    on_trigger_update: impl FnOnce(),
+    on_check_update: impl FnOnce(),
+) {
+    if !*is_open {
+        return;
+    }
+
+    let mut trigger_update_requested = false;
+    let mut check_update_requested = false;
+
+    egui::Window::new("ℹ Sobre o CopyFile")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .frame(
+            egui::Frame::window(&ctx.style())
+                .fill(Color32::from_rgb(15, 23, 42))
+                .stroke(Stroke::new(1.5_f32, Color32::from_rgb(51, 65, 85)))
+                .corner_radius(CornerRadius::same(12))
+                .inner_margin(egui::Margin::same(20)),
+        )
+        .show(ctx, |ui| {
+            ui.set_width(500.0);
+
+            // Cabeçalho / Logo
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new("⚡ CopyFile").strong().size(26.0).color(COLOR_ACCENT));
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new(format!("Versão instalada: v{}", env!("CARGO_PKG_VERSION")))
+                        .size(14.0)
+                        .color(COLOR_MUTED)
+                        .monospace(),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new("Ferramenta profissional para backup e cópia ultrarrápida de arquivos com verificação criptográfica xxHash3 e preservação integral de metadados.")
+                        .size(13.0)
+                        .color(Color32::from_rgb(203, 213, 225)),
+                );
+            });
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // --- Seção de Auto-Atualização ---
+            ui.label(RichText::new("🔄 Atualização do Sistema").strong().size(15.0));
+            ui.add_space(4.0);
+
+            egui::Frame::NONE
+                .fill(Color32::from_rgb(24, 33, 47))
+                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Versão no GitHub:").size(13.5));
+                        if let Some(info) = available_update {
+                            ui.label(
+                                RichText::new(format!("v{}", info.version))
+                                    .monospace()
+                                    .strong()
+                                    .color(COLOR_SUCCESS),
+                            );
+                            ui.label(
+                                RichText::new("(Nova versão disponível!)")
+                                    .small()
+                                    .color(COLOR_SUCCESS),
+                            );
+                        } else {
+                            ui.label(
+                                RichText::new("Você está na versão mais recente.")
+                                    .size(13.5)
+                                    .color(COLOR_SUCCESS),
+                            );
+                        }
+                    });
+
+                    if let Some(info) = available_update {
+                        if !info.release_notes.is_empty() {
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(&info.release_notes)
+                                    .small()
+                                    .italics()
+                                    .color(Color32::from_rgb(148, 163, 184)),
+                            );
+                        }
+                    }
+
+                    ui.add_space(8.0);
+                    match update_status {
+                        crate::core::UpdateStatus::Idle => {
+                            ui.horizontal(|ui| {
+                                if let Some(info) = available_update {
+                                    let btn_update = egui::Button::new(
+                                        RichText::new(format!(
+                                            "⬇ Baixar e Atualizar para v{}",
+                                            info.version
+                                        ))
+                                        .strong()
+                                        .color(Color32::WHITE),
+                                    )
+                                    .fill(Color32::from_rgb(0, 140, 60))
+                                    .min_size(Vec2::new(200.0, 32.0));
+
+                                    if ui.add(btn_update).clicked() {
+                                        trigger_update_requested = true;
+                                    }
+                                }
+
+                                let btn_check = egui::Button::new(
+                                    RichText::new("🔄 Verificar Atualizações").size(13.0),
+                                )
+                                .min_size(Vec2::new(150.0, 32.0));
+
+                                if ui.add(btn_check).clicked() {
+                                    check_update_requested = true;
+                                }
+                            });
+                        }
+                        crate::core::UpdateStatus::Downloading(prog) => {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Baixando nova versão... ({:.0}%)",
+                                    prog * 100.0
+                                ))
+                                .size(13.5),
+                            );
+                            ui.add_space(4.0);
+                            ui.add(egui::ProgressBar::new(*prog).animate(true));
+                        }
+                        crate::core::UpdateStatus::Success(msg) => {
+                            ui.label(
+                                RichText::new(msg)
+                                    .color(COLOR_SUCCESS)
+                                    .strong()
+                                    .size(13.5),
+                            );
+                        }
+                        crate::core::UpdateStatus::Error(err) => {
+                            ui.label(
+                                RichText::new(format!("Erro ao atualizar: {err}"))
+                                    .color(COLOR_ERROR)
+                                    .size(13.0),
+                            );
+                            ui.add_space(4.0);
+                            if ui
+                                .button(RichText::new("🔁 Tentar Novamente").size(13.0))
+                                .clicked()
+                            {
+                                trigger_update_requested = true;
+                            }
+                        }
+                    }
+                });
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // Informações dos Desenvolvedores
+            ui.label(RichText::new("👨‍💻 Desenvolvedores & Licença").strong().size(15.0));
+            ui.add_space(4.0);
+            egui::Frame::NONE
+                .fill(Color32::from_rgb(24, 33, 47))
+                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(egui::Margin::same(10))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("👤 Leandro").strong().size(14.0).color(Color32::WHITE));
+                        ui.label(RichText::new("+").size(13.0).color(COLOR_MUTED));
+                        ui.label(RichText::new("✨ Gemini (Google DeepMind)").strong().size(14.0).color(COLOR_WARNING));
+                    });
+                    ui.add_space(2.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Licença:").small().color(COLOR_MUTED));
+                        ui.label(RichText::new("MIT License (Código Aberto)").small().color(COLOR_SUCCESS));
+                        ui.label(RichText::new("•").small().color(COLOR_MUTED));
+                        ui.label(RichText::new("GitHub:").small().color(COLOR_MUTED));
+                        ui.hyperlink_to("lpl2103/copyfile", "https://github.com/lpl2103/copyfile");
+                    });
+                });
+
+            ui.add_space(14.0);
+            ui.vertical_centered(|ui| {
+                let close_btn = egui::Button::new(
+                    RichText::new("✖ Fechar")
+                        .size(14.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .fill(Color32::from_rgb(51, 65, 85))
+                .min_size(Vec2::new(120.0, 32.0));
+
+                if ui.add(close_btn).clicked() {
+                    *is_open = false;
+                }
+            });
+        });
+
+    if trigger_update_requested {
+        on_trigger_update();
+    }
+    if check_update_requested {
+        on_check_update();
+    }
+}
