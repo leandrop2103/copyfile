@@ -10,9 +10,18 @@ pub const COLOR_MUTED: Color32 = Color32::from_rgb(148, 163, 184); // Slate Gray
 
 /// Configures the egui visuals with a modern dark theme and larger, highly legible typography.
 pub fn configure_theme(ctx: &eframe::egui::Context) {
+    let mut fonts = eframe::egui::FontDefinitions::default();
+
+    // 1. Incorpora a fonte Caskaydia Cove Nerd Font estaticamente no executável
+    const NERD_FONT_DATA: &[u8] = include_bytes!("../../assets/CaskaydiaCoveNerdFont-Regular.ttf");
+    fonts.font_data.insert(
+        "caskaydia_nerd".to_owned(),
+        std::sync::Arc::new(eframe::egui::FontData::from_static(NERD_FONT_DATA)),
+    );
+
+    // 2. Tenta carregar Segoe UI do Windows para texto nativo, mantendo Caskaydia como fallback para todos os glifos
     #[cfg(windows)]
     {
-        let mut fonts = eframe::egui::FontDefinitions::default();
         let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
         let font_path = format!("{}\\Fonts\\segoeui.ttf", windir);
         if let Ok(font_data) = std::fs::read(&font_path) {
@@ -25,9 +34,37 @@ pub fn configure_theme(ctx: &eframe::egui::Context) {
                 .entry(FontFamily::Proportional)
                 .or_default()
                 .insert(0, "segoeui".to_owned());
+            fonts
+                .families
+                .entry(FontFamily::Proportional)
+                .or_default()
+                .push("caskaydia_nerd".to_owned());
+        } else {
+            fonts
+                .families
+                .entry(FontFamily::Proportional)
+                .or_default()
+                .insert(0, "caskaydia_nerd".to_owned());
         }
-        ctx.set_fonts(fonts);
     }
+
+    #[cfg(not(windows))]
+    {
+        fonts
+            .families
+            .entry(FontFamily::Proportional)
+            .or_default()
+            .insert(0, "caskaydia_nerd".to_owned());
+    }
+
+    // 3. Para Monospace (hashes, caminhos, logs), Caskaydia Cove Nerd Font é a primária absoluta
+    fonts
+        .families
+        .entry(FontFamily::Monospace)
+        .or_default()
+        .insert(0, "caskaydia_nerd".to_owned());
+
+    ctx.set_fonts(fonts);
 
     let mut visuals = Visuals::dark();
     visuals.override_text_color = Some(Color32::from_rgb(241, 245, 249));
