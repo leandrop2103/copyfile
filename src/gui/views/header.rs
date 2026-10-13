@@ -401,8 +401,9 @@ pub fn render_header(
             ui.separator();
             ui.add_space(6.0);
 
-            // --- Row 3: Action Controls & Rules ---
+            // --- Row 3: Action Controls Bar ---
             ui.horizontal(|ui| {
+                // 1. Botão Principal de Transferência
                 if !is_running {
                     let can_start = !sources.is_empty() && destination.is_some();
                     let (start_label, start_color) = match config.transfer_mode {
@@ -413,15 +414,15 @@ pub fn render_header(
                     let start_btn = egui::Button::new(
                         RichText::new(start_label)
                             .strong()
-                            .size(16.0)
-                            .color(Color32::WHITE),
+                            .size(15.0)
+                            .color(if can_start { Color32::WHITE } else { COLOR_MUTED }),
                     )
                     .fill(if can_start {
                         start_color
                     } else {
-                        Color32::from_rgb(51, 65, 85)
+                        Color32::from_rgb(45, 55, 72)
                     })
-                    .min_size(Vec2::new(180.0, 36.0));
+                    .min_size(Vec2::new(175.0, 36.0));
 
                     if ui.add_enabled(can_start, start_btn).clicked() {
                         on_start();
@@ -433,29 +434,33 @@ pub fn render_header(
                         "⏸ PAUSAR"
                     };
                     let pause_btn = egui::Button::new(
-                        RichText::new(pause_label).strong().size(15.0),
+                        RichText::new(pause_label).strong().size(14.0),
                     )
-                    .min_size(Vec2::new(130.0, 36.0));
+                    .fill(Color32::from_rgb(202, 138, 4))
+                    .min_size(Vec2::new(125.0, 36.0));
                     if ui.add(pause_btn).clicked() {
                         on_toggle_pause();
                     }
 
+                    ui.add_space(6.0);
+
                     let cancel_btn = egui::Button::new(
                         RichText::new("⏹ CANCELAR")
                             .strong()
-                            .size(15.0)
-                            .color(COLOR_ERROR),
+                            .size(14.0)
+                            .color(Color32::WHITE),
                     )
-                    .min_size(Vec2::new(130.0, 36.0));
+                    .fill(Color32::from_rgb(185, 28, 28))
+                    .min_size(Vec2::new(125.0, 36.0));
                     if ui.add(cancel_btn).clicked() {
                         on_cancel();
                     }
                 }
 
-                ui.add_space(12.0);
+                ui.add_space(10.0);
 
-                // Transfer Mode selector
-                if !is_running {
+                // 2. Seletor de Modo de Transferência (sempre visível, desabilitado durante execução)
+                ui.add_enabled_ui(!is_running, |ui| {
                     egui::ComboBox::from_id_salt("header_mode_combo")
                         .selected_text(RichText::new(config.transfer_mode.label()).size(13.5).strong())
                         .show_ui(ui, |ui| {
@@ -467,29 +472,51 @@ pub fn render_header(
                                 );
                             }
                         });
-                }
+                });
 
-                ui.add_space(8.0);
-
-                // Quick options
-                ui.checkbox(&mut config.verify_checksum, RichText::new("Verificar xxHash3").size(14.0));
-                ui.checkbox(&mut config.ignore_errors, RichText::new("Ignorar erros").size(14.0));
-                ui.checkbox(&mut config.preserve_metadata, RichText::new("Preservar metadados").size(14.0));
-
-                // Quick Overwrite Policy dropdown
+                // 3. Regra de Sobrescrita alinhada à direita
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    egui::ComboBox::from_id_salt("header_overwrite_combo")
-                        .selected_text(RichText::new(config.overwrite_policy.label()).size(13.0))
-                        .show_ui(ui, |ui| {
-                            for policy in OverwritePolicy::all() {
-                                ui.selectable_value(
-                                    &mut config.overwrite_policy,
-                                    policy,
-                                    RichText::new(policy.label()).size(13.0),
-                                );
-                            }
-                        });
-                    ui.label(RichText::new("Regra:").size(14.0).strong());
+                    ui.add_enabled_ui(!is_running, |ui| {
+                        egui::ComboBox::from_id_salt("header_overwrite_combo")
+                            .selected_text(RichText::new(config.overwrite_policy.label()).size(13.0))
+                            .show_ui(ui, |ui| {
+                                for policy in OverwritePolicy::all() {
+                                    ui.selectable_value(
+                                        &mut config.overwrite_policy,
+                                        policy,
+                                        RichText::new(policy.label()).size(13.0),
+                                    );
+                                }
+                            });
+                        ui.label(RichText::new("Regra:").size(13.5).strong().color(Color32::from_rgb(203, 213, 225)));
+                    });
+                });
+            });
+
+            ui.add_space(6.0);
+
+            // --- Row 3.5: Opções Rápidas de Transferência (Checkboxes alinhados) ---
+            ui.add_enabled_ui(!is_running, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Opções:").size(13.0).color(COLOR_MUTED));
+                    ui.add_space(4.0);
+
+                    ui.checkbox(
+                        &mut config.verify_checksum,
+                        RichText::new("Verificar xxHash3").size(13.5),
+                    );
+                    ui.add_space(12.0);
+
+                    ui.checkbox(
+                        &mut config.ignore_errors,
+                        RichText::new("Ignorar erros").size(13.5),
+                    );
+                    ui.add_space(12.0);
+
+                    ui.checkbox(
+                        &mut config.preserve_metadata,
+                        RichText::new("Preservar metadados").size(13.5),
+                    );
                 });
             });
 
