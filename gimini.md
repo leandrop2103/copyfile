@@ -42,5 +42,5 @@ git commit -m "release: v<VERSÃO> - <descrição das alterações>"
 git push origin main
 git tag -a v<VERSÃO> -m "Release v<VERSÃO>"
 git push origin v<VERSÃO>
-gh release create "v<VERSÃO>" "target\release\copyfile.exe" --repo "lpl2103/copyfile" --title "CopyFile v<VERSÃO>" --notes "<Notas da versão>"
+gh release create "v<VERSÃO>" "target\release\copyfile.exe" --repo "leandrop2103/copyfile" --title "CopyFile v<VERSÃO>" --notes "<Notas da versão>"
 ```

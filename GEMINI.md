@@ -33,7 +33,7 @@ Copy-Item -Force target\release\copyfile.exe copyfile.exe
 ## 🚀 4. Regra de Publicação e Release no GitHub
 Sempre que concluir um ciclo de melhorias ou correção:
 
-### Passo A: Repositório de Código-Fonte (`lpl2103/copyfile`)
+### Passo A: Repositório de Código-Fonte (`leandrop2103/copyfile`)
 ```powershell
 git add Cargo.toml Cargo.lock copyfile.exe dist/copyfile.exe src/ build_and_release.ps1 AGENTS.md GEMINI.md gimini.md
 git commit -m "release: v<VERSÃO> - <descrição das alterações>"
@@ -45,7 +45,7 @@ git push origin v<VERSÃO>
 ### Passo B: Criação de Release no GitHub com Binário
 O executável atualizado deve ser publicado como uma nova release no repositório GitHub para alimentar o auto-updater:
 ```powershell
-gh release create "v<VERSÃO>" "target\release\copyfile.exe" --repo "lpl2103/copyfile" --title "CopyFile v<VERSÃO>" --notes "<Notas da versão>"
+gh release create "v<VERSÃO>" "target\release\copyfile.exe" --repo "leandrop2103/copyfile" --title "CopyFile v<VERSÃO>" --notes "<Notas da versão>"
 ```
 
 *(Ou simplesmente execute `.\build_and_release.ps1 -Notes "<Notas>"` para realizar todos os passos automaticamente).*
@@ -53,7 +53,7 @@ gh release create "v<VERSÃO>" "target\release\copyfile.exe" --repo "lpl2103/cop
 ---
 
 ## 🔄 5. Arquitetura do Auto-Updater (`src/core/updater.rs`)
-1. **Consulta GitHub Releases:** Verifica a API pública `https://api.github.com/repos/lpl2103/copyfile/releases/latest`.
+1. **Consulta GitHub Releases:** Verifica a API pública `https://api.github.com/repos/leandrop2103/copyfile/releases/latest`.
 2. **Comparação SemVer:** Compara a tag remota com a versão embutida em tempo de compilação `env!("CARGO_PKG_VERSION")`.
 3. **Download com Streaming Seguro:** Baixa o executável para `copyfile.exe.new` com callback de progresso em tempo real e validação do cabeçalho PE (assinatura `MZ`).
 4. **Substituição a Quente no Windows:**

@@ -62,8 +62,8 @@ if (-not (Test-Path "dist")) {
 Copy-Item -Force $outputBinary "dist\copyfile.exe"
 Copy-Item -Force $outputBinary "copyfile.exe"
 
-# 5. Publicacao no Git (lpl2103/copyfile)
-Write-Host "[*] Enviando alteracoes para git (lpl2103/copyfile)..." -ForegroundColor Cyan
+# 5. Publicacao no Git (leandrop2103/copyfile)
+Write-Host "[*] Enviando alteracoes para git (leandrop2103/copyfile)..." -ForegroundColor Cyan
 git add Cargo.toml Cargo.lock copyfile.exe dist/copyfile.exe src/ build_and_release.ps1 AGENTS.md GEMINI.md
 git commit -m "release: v$newVersion - $Notes"
 git push origin main
@@ -73,7 +73,7 @@ git tag -a "v$newVersion" -m "Release v$newVersion"
 git push origin "v$newVersion"
 
 # 7. Publicacao da Release no GitHub
-Write-Host "[*] Criando release v$newVersion no repositorio lpl2103/copyfile..." -ForegroundColor Cyan
-gh release create "v$newVersion" "target\release\copyfile.exe" --repo "lpl2103/copyfile" --title "CopyFile v$newVersion" --notes "$Notes"
+Write-Host "[*] Criando release v$newVersion no repositorio leandrop2103/copyfile..." -ForegroundColor Cyan
+gh release create "v$newVersion" "target\release\copyfile.exe" --repo "leandrop2103/copyfile" --title "CopyFile v$newVersion" --notes "$Notes"
 
 Write-Host "`n[SUCESSO] Build e publicacao da versao v$newVersion finalizados com sucesso!" -ForegroundColor Green

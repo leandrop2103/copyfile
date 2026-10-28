@@ -1,7 +1,7 @@
 //! # Módulo de Atualização Automática (`updater.rs`)
 //!
 //! Este módulo gerencia o download e a substituição a quente do executável da aplicação
-//! diretamente do repositório público de releases no GitHub (`lpl2103/copyfile`).
+//! diretamente do repositório público de releases no GitHub (`leandrop2103/copyfile`).
 //!
 //! ## Técnica de Substituição a Quente no Windows:
 //! No Windows, um executável em execução não pode ser sobrescrito diretamente.
@@ -18,9 +18,10 @@ use std::process::Command;
 use tracing::{info, warn};
 
 /// URLs oficiais do repositório GitHub para verificação e download
-pub const GITHUB_API_LATEST: &str = "https://api.github.com/repos/lpl2103/copyfile/releases/latest";
+pub const GITHUB_API_LATEST: &str =
+    "https://api.github.com/repos/leandrop2103/copyfile/releases/latest";
 pub const GITHUB_DIRECT_DOWNLOAD: &str =
-    "https://github.com/lpl2103/copyfile/releases/latest/download/copyfile.exe";
+    "https://github.com/leandrop2103/copyfile/releases/latest/download/copyfile.exe";
 
 /// Informações sobre uma versão remota disponível
 #[derive(Debug, Clone, PartialEq, Eq)]

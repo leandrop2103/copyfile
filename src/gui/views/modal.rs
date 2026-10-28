@@ -753,7 +753,7 @@ pub fn render_about_modal(
                         ui.label(RichText::new("MIT License (Código Aberto)").small().color(COLOR_SUCCESS));
                         ui.label(RichText::new("•").small().color(COLOR_MUTED));
                         ui.label(RichText::new("GitHub:").small().color(COLOR_MUTED));
-                        ui.hyperlink_to("lpl2103/copyfile", "https://github.com/lpl2103/copyfile");
+                        ui.hyperlink_to("leandrop2103/copyfile", "https://github.com/leandrop2103/copyfile");
                     });
                 });
 

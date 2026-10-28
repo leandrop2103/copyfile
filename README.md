@@ -9,7 +9,7 @@ Construído em **Rust**, com aceleração multithread via **Rayon**, verificaç�
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange.svg?style=flat&logo=rust)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6.svg?logo=windows)](https://microsoft.com/windows)
-[![Build Status](https://github.com/lpl2103/copyfile/actions/workflows/build-release.yml/badge.svg)](https://github.com/lpl2103/copyfile/actions/workflows/build-release.yml)
+[![Build Status](https://github.com/leandrop2103/copyfile/actions/workflows/build-release.yml/badge.svg)](https://github.com/leandrop2103/copyfile/actions/workflows/build-release.yml)
 
 ---
 
@@ -117,7 +117,7 @@ copyfile --cli --sources "C:\origem" --dest "D:\backup" --threads 8
 ### Como compilar:
 ```bash
 # Clonar o repositório
-git clone https://github.com/lpl2103/copyfile.git
+git clone https://github.com/leandrop2103/copyfile.git
 cd copyfile
 
 # Executar em modo desenvolvimento
