@@ -1,7 +1,8 @@
-//! High-performance xxHash3 checksum implementation.
+//! High-performance xxHash3 checksum implementation with Windows sequential-scan optimization.
 
+use crate::core::copier::CopyController;
 use std::fmt;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read};
 use std::path::Path;
 use xxhash_rust::xxh3::Xxh3;
@@ -28,6 +29,7 @@ impl FastHasher {
     }
 
     /// Feeds a chunk of bytes into the hash calculation.
+    #[inline]
     pub fn update(&mut self, chunk: &[u8]) {
         self.state.update(chunk);
     }
@@ -55,8 +57,24 @@ impl FastHasher {
     }
 }
 
+/// Opens a file with `FILE_FLAG_SEQUENTIAL_SCAN` on Windows for aggressive OS read-ahead.
+pub(crate) fn open_sequential_read(path: &Path) -> io::Result<File> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_SEQUENTIAL_SCAN;
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_SEQUENTIAL_SCAN)
+            .open(path)
+    }
+    #[cfg(not(windows))]
+    {
+        OpenOptions::new().read(true).open(path)
+    }
+}
+
 /// Computes the xxHash3 64-bit checksum of a file directly from disk.
-/// Uses an 8 MiB buffer for maximal I/O throughput.
 ///
 /// # Errors
 /// Returns an `io::Error` if the file cannot be opened or read.
@@ -65,7 +83,20 @@ pub fn compute_file_xxhash(
     buffer_size: usize,
     buffer: Option<&mut Vec<u8>>,
 ) -> io::Result<String> {
-    let mut file = File::open(path)?;
+    compute_file_xxhash_cancellable(path, buffer_size, buffer, None)
+}
+
+/// Computes the xxHash3 64-bit checksum of a file with optional pause/cancel support.
+///
+/// # Errors
+/// Returns `io::ErrorKind::Interrupted` if cancelled via `controller`, or an I/O error.
+pub fn compute_file_xxhash_cancellable(
+    path: &Path,
+    buffer_size: usize,
+    buffer: Option<&mut Vec<u8>>,
+    controller: Option<&CopyController>,
+) -> io::Result<String> {
+    let mut file = open_sequential_read(path)?;
     let mut hasher = FastHasher::new();
     let size = buffer_size.max(64 * 1024);
 
@@ -84,6 +115,24 @@ pub fn compute_file_xxhash(
     };
 
     loop {
+        if let Some(ctrl) = controller {
+            if ctrl.is_cancelled() {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "Verificação cancelada pelo usuário",
+                ));
+            }
+            while ctrl.is_paused() {
+                if ctrl.is_cancelled() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "Verificação cancelada pelo usuário",
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(40));
+            }
+        }
+
         let bytes_read = file.read(buf_ref)?;
         if bytes_read == 0 {
             break;

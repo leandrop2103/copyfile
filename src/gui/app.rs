@@ -11,8 +11,12 @@ use crate::gui::views::{
 };
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui::{self, CentralPanel, Color32, RichText, TopBottomPanel};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+/// Maximum number of log entries retained in memory to keep RAM flat on massive backups.
+const MAX_LOG_ENTRIES: usize = 25_000;
 
 /// Active navigation tab in the main interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -43,7 +47,7 @@ pub struct CopyFileApp {
 
     // Data State
     entries: Vec<FileEntry>,
-    logs: Vec<LogEntry>,
+    logs: VecDeque<LogEntry>,
 
     // Progress & Metrics
     total_bytes: u64,
@@ -55,9 +59,12 @@ pub struct CopyFileApp {
     current_file_name: Option<String>,
     current_file_copied: u64,
     current_file_total: u64,
+    last_active_entry_id: Option<usize>,
 
     // Performance Speed Calculations
     start_time: Option<Instant>,
+    paused_duration: Duration,
+    pause_started_at: Option<Instant>,
     last_speed_sample: Instant,
     bytes_since_last_sample: u64,
     current_speed_bps: f64,
@@ -83,6 +90,7 @@ pub struct CopyFileApp {
     // Windows Taskbar Progress & Modals
     taskbar: crate::core::taskbar::TaskbarProgress,
     hwnd: isize,
+    last_taskbar_state: Option<(crate::core::taskbar::TaskbarState, u64)>,
     show_completion_modal: bool,
     show_sources_manager: bool,
     show_paste_prompt_modal: bool,
@@ -109,7 +117,7 @@ impl Default for CopyFileApp {
             event_tx,
             event_rx,
             entries: Vec::new(),
-            logs: Vec::new(),
+            logs: VecDeque::with_capacity(256),
             total_bytes: 0,
             copied_bytes: 0,
             processed_bytes: 0,
@@ -119,7 +127,10 @@ impl Default for CopyFileApp {
             current_file_name: None,
             current_file_copied: 0,
             current_file_total: 0,
+            last_active_entry_id: None,
             start_time: None,
+            paused_duration: Duration::ZERO,
+            pause_started_at: None,
             last_speed_sample: Instant::now(),
             bytes_since_last_sample: 0,
             current_speed_bps: 0.0,
@@ -137,6 +148,7 @@ impl Default for CopyFileApp {
             auto_scroll: true,
             taskbar: crate::core::taskbar::TaskbarProgress::new(),
             hwnd: 0,
+            last_taskbar_state: None,
             show_completion_modal: false,
             show_sources_manager: false,
             show_paste_prompt_modal: false,
@@ -148,6 +160,15 @@ impl Default for CopyFileApp {
             update_status: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::core::UpdateStatus::Idle,
             )),
+        }
+    }
+}
+
+impl Drop for CopyFileApp {
+    fn drop(&mut self) {
+        if self.is_running {
+            self.controller.cancel();
+            Self::set_system_sleep_prevented(false);
         }
     }
 }
@@ -180,51 +201,94 @@ impl CopyFileApp {
             }
         });
 
-        Self {
-            sources: initial_sources,
-            destination: initial_destination,
-            show_paste_prompt_modal: prompt_paste,
-            needs_focus: true,
-            auto_start,
-            available_update,
-            update_status,
-            ..Default::default()
-        }
+        let mut app = Self::default();
+        app.sources = initial_sources;
+        app.destination = initial_destination;
+        app.show_paste_prompt_modal = prompt_paste;
+        app.needs_focus = true;
+        app.auto_start = auto_start;
+        app.available_update = available_update;
+        app.update_status = update_status;
+        app
     }
 
-    /// Dispara o processo de auto-atualização em background thread.
-    pub fn trigger_auto_update(&self) {
+    /// Appends a log entry while keeping memory bounded at `MAX_LOG_ENTRIES`.
+    fn push_log(&mut self, entry: LogEntry) {
+        if self.logs.len() >= MAX_LOG_ENTRIES {
+            self.logs.pop_front();
+        }
+        self.logs.push_back(entry);
+    }
+
+    /// Dispara o processo de auto-atualização em background thread com repaint contínuo da barra de progresso.
+    pub fn trigger_auto_update(&self, ctx: &egui::Context) {
+        // Prevent double-clicking while already downloading
+        if let Ok(lock) = self.update_status.lock() {
+            if matches!(
+                *lock,
+                crate::core::UpdateStatus::Downloading(_) | crate::core::UpdateStatus::Success(_)
+            ) {
+                return;
+            }
+        }
+
         let update_status = std::sync::Arc::clone(&self.update_status);
         let download_url = self
             .available_update
             .lock()
             .ok()
             .and_then(|l| l.as_ref().map(|info| info.download_url.clone()));
+        let ctx_bg = ctx.clone();
 
         std::thread::spawn(move || {
             let update_status_clone = std::sync::Arc::clone(&update_status);
+            let ctx_cb = ctx_bg.clone();
             let result = crate::core::perform_auto_update(download_url, move |status| {
                 if let Ok(mut lock) = update_status_clone.lock() {
                     *lock = status;
                 }
+                ctx_cb.request_repaint();
             });
 
             if let Err(err) = result {
                 if let Ok(mut lock) = update_status.lock() {
-                    *lock = crate::core::UpdateStatus::Error(format!("{:#}", err));
+                    *lock = crate::core::UpdateStatus::Error(format!("{err:#}"));
                 }
+                ctx_bg.request_repaint();
             }
         });
     }
 
-    /// Verifica manualmente por atualizações no GitHub.
+    /// Verifica manualmente por atualizações no GitHub com feedback visual imediato.
     pub fn check_updates_manual(&self, ctx: &egui::Context) {
+        if let Ok(mut lock) = self.update_status.lock() {
+            if matches!(
+                *lock,
+                crate::core::UpdateStatus::Checking | crate::core::UpdateStatus::Downloading(_)
+            ) {
+                return;
+            }
+            *lock = crate::core::UpdateStatus::Checking;
+        }
+        ctx.request_repaint();
+
         let available_update_bg = std::sync::Arc::clone(&self.available_update);
+        let update_status_bg = std::sync::Arc::clone(&self.update_status);
         let ctx_bg = ctx.clone();
         std::thread::spawn(move || {
-            if let Some(info) = crate::core::check_for_updates() {
-                if let Ok(mut lock) = available_update_bg.lock() {
-                    *lock = Some(info);
+            match crate::core::check_for_updates_detailed() {
+                Ok(maybe_info) => {
+                    if let Ok(mut lock) = available_update_bg.lock() {
+                        *lock = maybe_info;
+                    }
+                    if let Ok(mut lock) = update_status_bg.lock() {
+                        *lock = crate::core::UpdateStatus::Idle;
+                    }
+                }
+                Err(err_msg) => {
+                    if let Ok(mut lock) = update_status_bg.lock() {
+                        *lock = crate::core::UpdateStatus::Error(err_msg);
+                    }
                 }
             }
             ctx_bg.request_repaint();
@@ -267,6 +331,8 @@ impl CopyFileApp {
         self.show_completion_modal = false;
         self.controller = CopyController::new();
         self.start_time = Some(Instant::now());
+        self.paused_duration = Duration::ZERO;
+        self.pause_started_at = None;
         self.last_speed_sample = Instant::now();
         self.bytes_since_last_sample = 0;
         self.copied_bytes = 0;
@@ -274,17 +340,23 @@ impl CopyFileApp {
         self.copied_files_count = 0;
         self.skipped_files_count = 0;
         self.error_files_count = 0;
+        self.current_speed_bps = 0.0;
+        self.average_speed_bps = 0.0;
+        self.elapsed_time = Duration::ZERO;
+        self.eta = None;
+        self.last_active_entry_id = None;
+        self.speed_history.clear();
 
         let sources = self.sources.clone();
         let config = self.config.clone();
         let controller = self.controller.clone();
         let event_tx = self.event_tx.clone();
 
-        self.logs.push(LogEntry::new(
+        self.push_log(LogEntry::new(
             LogLevel::Info,
             None,
             format!(
-                "Iniciando escaneamento de {} fontes para {}",
+                "Iniciando escaneamento paralelo de {} fonte(s) para {}",
                 sources.len(),
                 dest.display()
             ),
@@ -292,13 +364,23 @@ impl CopyFileApp {
 
         std::thread::spawn(move || {
             let (scanned_entries, total_bytes) = scan_sources(&sources, &dest);
+            if controller.is_cancelled() {
+                let _ = event_tx.send(CopyEvent::AllCompleted {
+                    total_duration: Duration::ZERO,
+                    cancelled: true,
+                });
+                return;
+            }
+
             let _ = event_tx.send(CopyEvent::ScanCompleted {
                 entries: scanned_entries.clone(),
                 total_bytes,
             });
 
             // In Mirror Sync mode, remove orphan/obsolete files from destination
-            if config.transfer_mode == crate::core::types::TransferMode::Sync {
+            if config.transfer_mode == crate::core::types::TransferMode::Sync
+                && !controller.is_cancelled()
+            {
                 let orphans = crate::core::scanner::find_mirror_orphan_entries(
                     &sources,
                     &dest,
@@ -314,6 +396,9 @@ impl CopyFileApp {
                         ),
                     )));
                     for orphan in orphans {
+                        if controller.is_cancelled() {
+                            break;
+                        }
                         let is_dir = orphan.is_dir();
                         let res = if is_dir {
                             std::fs::remove_dir_all(&orphan)
@@ -331,11 +416,12 @@ impl CopyFileApp {
                 }
             }
 
-            if !scanned_entries.is_empty() {
+            if !scanned_entries.is_empty() && !controller.is_cancelled() {
                 run_copy_batch(scanned_entries, config, controller, event_tx);
             } else {
                 let _ = event_tx.send(CopyEvent::AllCompleted {
                     total_duration: Duration::ZERO,
+                    cancelled: controller.is_cancelled(),
                 });
             }
         });
@@ -379,8 +465,12 @@ impl CopyFileApp {
         self.show_completion_modal = false;
         self.controller = CopyController::new();
         self.start_time = Some(Instant::now());
+        self.paused_duration = Duration::ZERO;
+        self.pause_started_at = None;
         self.last_speed_sample = Instant::now();
         self.bytes_since_last_sample = 0;
+        self.last_active_entry_id = None;
+        self.speed_history.clear();
 
         Self::set_system_sleep_prevented(true);
 
@@ -388,7 +478,7 @@ impl CopyFileApp {
         let controller = self.controller.clone();
         let event_tx = self.event_tx.clone();
 
-        self.logs.push(LogEntry::new(
+        self.push_log(LogEntry::new(
             LogLevel::Info,
             None,
             format!(
@@ -402,17 +492,24 @@ impl CopyFileApp {
         });
     }
 
-    /// Toggles pause/resume state.
+    /// Toggles pause/resume state while preserving accurate active elapsed duration.
     pub fn toggle_pause(&mut self) {
         self.is_paused = !self.is_paused;
         self.controller.set_paused(self.is_paused);
+        if self.is_paused {
+            self.pause_started_at = Some(Instant::now());
+            self.current_speed_bps = 0.0;
+        } else if let Some(paused_at) = self.pause_started_at.take() {
+            self.paused_duration += paused_at.elapsed();
+            self.last_speed_sample = Instant::now();
+            self.bytes_since_last_sample = 0;
+        }
         let status_msg = if self.is_paused {
             "Operação pausada pelo usuário"
         } else {
             "Operação retomada"
         };
-        self.logs
-            .push(LogEntry::new(LogLevel::Info, None, status_msg));
+        self.push_log(LogEntry::new(LogLevel::Info, None, status_msg));
     }
 
     /// Cancels active copy process.
@@ -421,7 +518,10 @@ impl CopyFileApp {
         self.controller.cancel();
         self.is_running = false;
         self.is_paused = false;
-        self.logs.push(LogEntry::new(
+        self.pause_started_at = None;
+        self.current_speed_bps = 0.0;
+        self.eta = None;
+        self.push_log(LogEntry::new(
             LogLevel::Warn,
             None,
             "Operação de cópia cancelada pelo usuário.",
@@ -442,6 +542,12 @@ impl CopyFileApp {
             self.current_file_name = None;
             self.current_file_copied = 0;
             self.current_file_total = 0;
+            self.last_active_entry_id = None;
+            self.current_speed_bps = 0.0;
+            self.average_speed_bps = 0.0;
+            self.elapsed_time = Duration::ZERO;
+            self.eta = None;
+            self.speed_history.clear();
         }
     }
 
@@ -452,12 +558,26 @@ impl CopyFileApp {
                 let id =
                     self.transfer_queue
                         .enqueue(self.sources.clone(), dest, self.config.clone());
-                self.logs.push(LogEntry::new(
+                self.push_log(LogEntry::new(
                     LogLevel::Info,
                     None,
                     format!("Lote de transferência enfileirado com sucesso (ID #{id})."),
                 ));
             }
+        }
+    }
+
+    /// Starts the next waiting job in the queue if no transfer is currently active.
+    pub fn start_next_queued_job(&mut self) {
+        if self.is_running {
+            return;
+        }
+        if let Some(next_job) = self.transfer_queue.start_next_job().cloned() {
+            self.sources = next_job.sources;
+            self.destination = Some(next_job.destination);
+            self.config = next_job.config;
+            self.active_job_id = Some(next_job.id);
+            self.start_copy();
         }
     }
 
@@ -472,7 +592,7 @@ impl CopyFileApp {
                     self.total_bytes = total_bytes;
                     self.processed_bytes = 0;
                     self.entries = entries;
-                    self.logs.push(LogEntry::new(
+                    self.push_log(LogEntry::new(
                         LogLevel::Info,
                         None,
                         format!(
@@ -483,6 +603,7 @@ impl CopyFileApp {
                     ));
                 }
                 CopyEvent::FileStarted { id } => {
+                    self.last_active_entry_id = Some(id);
                     if let Some(entry) = self.entries.get_mut(id) {
                         entry.status = FileStatus::Copying {
                             bytes_copied: 0,
@@ -506,6 +627,7 @@ impl CopyFileApp {
                     total_bytes,
                     chunk_delta,
                 } => {
+                    self.last_active_entry_id = Some(id);
                     if let Some(entry) = self.entries.get_mut(id) {
                         entry.status = FileStatus::Copying {
                             bytes_copied: copied_bytes,
@@ -518,11 +640,18 @@ impl CopyFileApp {
                     self.current_file_copied = copied_bytes;
                     self.current_file_total = total_bytes;
                 }
+                CopyEvent::FileVerifying { id } => {
+                    self.last_active_entry_id = Some(id);
+                    if let Some(entry) = self.entries.get_mut(id) {
+                        entry.status = FileStatus::Verifying;
+                    }
+                }
                 CopyEvent::FileCompleted {
                     id,
                     hash,
                     duration_ms,
                 } => {
+                    self.last_active_entry_id = Some(id);
                     if let Some(entry) = self.entries.get_mut(id) {
                         entry.status = FileStatus::Success {
                             hash: hash.clone(),
@@ -533,6 +662,7 @@ impl CopyFileApp {
                     self.copied_files_count += 1;
                 }
                 CopyEvent::FileSkipped { id, reason, hash } => {
+                    self.last_active_entry_id = Some(id);
                     let file_size = self.entries.get(id).map_or(0, |e| e.size);
                     self.processed_bytes += file_size;
                     if let Some(entry) = self.entries.get_mut(id) {
@@ -544,30 +674,63 @@ impl CopyFileApp {
                     self.skipped_files_count += 1;
                 }
                 CopyEvent::FileFailed { id, error } => {
-                    let file_size = self.entries.get(id).map_or(0, |e| e.size);
-                    self.processed_bytes += file_size;
+                    self.last_active_entry_id = Some(id);
+                    // Avoid double-counting bytes that were already counted via FileProgress before failing
+                    let remaining_for_file = self.entries.get(id).map_or(0, |e| {
+                        let already_counted = match e.status {
+                            FileStatus::Copying { bytes_copied, .. } => bytes_copied,
+                            _ => 0,
+                        };
+                        e.size.saturating_sub(already_counted)
+                    });
+                    self.processed_bytes += remaining_for_file;
                     if let Some(entry) = self.entries.get_mut(id) {
                         entry.status = FileStatus::Error { error };
                     }
                     self.error_files_count += 1;
                 }
-                CopyEvent::AllCompleted { total_duration } => {
+                CopyEvent::AllCompleted {
+                    total_duration,
+                    cancelled,
+                } => {
                     Self::set_system_sleep_prevented(false);
                     self.is_running = false;
                     self.is_paused = false;
-                    self.elapsed_time = total_duration;
+                    self.pause_started_at = None;
+                    let active_duration = total_duration.saturating_sub(self.paused_duration);
+                    self.elapsed_time = active_duration;
+                    if active_duration.as_secs_f64() > 0.0 {
+                        self.average_speed_bps =
+                            self.copied_bytes as f64 / active_duration.as_secs_f64();
+                    }
                     self.current_speed_bps = 0.0;
                     self.eta = None;
                     self.current_file_name = None;
                     self.current_file_copied = 0;
                     self.current_file_total = 0;
+
+                    // CRITICAL FIX: Do NOT show completion modal, sound, toast, or shutdown if user cancelled!
+                    if cancelled {
+                        if let Some(job_id) = self.active_job_id.take() {
+                            if let Some(job) = self
+                                .transfer_queue
+                                .jobs_mut()
+                                .iter_mut()
+                                .find(|j| j.id == job_id)
+                            {
+                                job.status = crate::core::queue::QueueStatus::Cancelled;
+                            }
+                        }
+                        continue;
+                    }
+
                     self.processed_bytes = self.total_bytes;
                     self.show_completion_modal = true;
 
                     // Send Windows Native Notification & Sound Alert
                     if self.config.enable_notifications {
                         let vol_str = crate::gui::views::header::format_bytes(self.total_bytes);
-                        let time_str = crate::gui::views::header::format_duration(total_duration);
+                        let time_str = crate::gui::views::header::format_duration(active_duration);
                         let mode_label = self.config.transfer_mode.label();
                         let msg = format!(
                             "{mode_label} concluído!\n{} arquivos transferidos ({vol_str}) em {time_str}.",
@@ -580,7 +743,7 @@ impl CopyFileApp {
                         );
                     }
 
-                    self.logs.push(LogEntry::new(
+                    self.push_log(LogEntry::new(
                         LogLevel::Success,
                         None,
                         format!(
@@ -598,29 +761,22 @@ impl CopyFileApp {
                     );
 
                     // Mark active queue job completed and start next if available
-                    if let Some(job_id) = self.active_job_id {
+                    if let Some(job_id) = self.active_job_id.take() {
                         self.transfer_queue.mark_completed(job_id);
-                        self.active_job_id = None;
                     }
 
-                    if let Some(next_job) = self.transfer_queue.start_next_job().cloned() {
-                        self.sources = next_job.sources;
-                        self.destination = Some(next_job.destination);
-                        self.config = next_job.config;
-                        self.active_job_id = Some(next_job.id);
-                        self.start_copy();
-                    }
+                    self.start_next_queued_job();
                 }
                 CopyEvent::Log(log_entry) => {
-                    self.logs.push(log_entry);
+                    self.push_log(log_entry);
                 }
             }
         }
 
-        // Update speed and ETA calculations every 250ms
+        // Update speed and ETA calculations every 250ms (excluding paused time)
         if self.is_running && !self.is_paused {
             if let Some(start) = self.start_time {
-                self.elapsed_time = start.elapsed();
+                self.elapsed_time = start.elapsed().saturating_sub(self.paused_duration);
                 let sample_elapsed = self.last_speed_sample.elapsed();
 
                 if sample_elapsed >= Duration::from_millis(250) {
@@ -635,9 +791,14 @@ impl CopyFileApp {
                         self.average_speed_bps = self.copied_bytes as f64 / total_secs;
                     }
 
-                    if self.current_speed_bps > 0.0 {
+                    let eta_speed = if self.current_speed_bps > 0.0 {
+                        self.current_speed_bps
+                    } else {
+                        self.average_speed_bps
+                    };
+                    if eta_speed > 0.0 {
                         let remaining_bytes = self.total_bytes.saturating_sub(self.processed_bytes);
-                        let remaining_secs = remaining_bytes as f64 / self.current_speed_bps;
+                        let remaining_secs = remaining_bytes as f64 / eta_speed;
                         self.eta = Some(Duration::from_secs_f64(remaining_secs));
                     }
                 }
@@ -647,6 +808,9 @@ impl CopyFileApp {
 
     /// Handles file & folder drag-and-drop directly into the window.
     fn handle_drag_and_drop(&mut self, ctx: &egui::Context) {
+        if self.is_running {
+            return;
+        }
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
                 for dropped in &i.raw.dropped_files {
@@ -660,12 +824,18 @@ impl CopyFileApp {
         });
     }
 
-    /// Handles global keyboard productivity shortcuts.
+    /// Handles global keyboard productivity shortcuts (safely ignoring text input focus!).
     fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
+        let typing = ctx.wants_keyboard_input();
+
         ctx.input(|i| {
-            // Escape: Close modals or Cancel active operation
+            // Escape: Close any open modal or cancel active operation
             if i.key_pressed(egui::Key::Escape) {
-                if self.show_completion_modal {
+                if self.show_about_modal {
+                    self.show_about_modal = false;
+                } else if self.show_paste_prompt_modal {
+                    self.show_paste_prompt_modal = false;
+                } else if self.show_completion_modal {
                     self.show_completion_modal = false;
                 } else if self.show_sources_manager {
                     self.show_sources_manager = false;
@@ -675,7 +845,7 @@ impl CopyFileApp {
             }
 
             // F5 or Ctrl+Enter: Start Copy / Sync
-            if (i.key_pressed(egui::Key::F5)
+            if ((!typing && i.key_pressed(egui::Key::F5))
                 || (i.modifiers.ctrl && i.key_pressed(egui::Key::Enter)))
                 && !self.is_running
                 && !self.sources.is_empty()
@@ -684,8 +854,8 @@ impl CopyFileApp {
                 self.start_copy();
             }
 
-            // Space: Pause / Resume
-            if i.key_pressed(egui::Key::Space) && self.is_running && !i.modifiers.ctrl {
+            // Space: Pause / Resume ONLY when not typing in a search/text field!
+            if !typing && i.key_pressed(egui::Key::Space) && self.is_running && !i.modifiers.ctrl {
                 self.toggle_pause();
             }
 
@@ -714,21 +884,19 @@ impl CopyFileApp {
         });
     }
 
-    /// Executes the requested post-copy power/audio/eject action.
+    /// Executes the requested post-copy power/audio/eject action silently (zero console flash!).
     fn execute_post_copy_action(action: PostCopyAction, dest: Option<&PathBuf>) {
         match action {
             PostCopyAction::None => {}
             PostCopyAction::PlaySound => {
                 #[cfg(windows)]
                 {
-                    use std::process::Command;
-                    let _ = Command::new("powershell")
-                        .args([
-                            "-NoProfile",
-                            "-Command",
-                            "[System.Media.SystemSounds]::Asterisk.Play()",
-                        ])
-                        .spawn();
+                    extern "system" {
+                        fn MessageBeep(uType: u32) -> i32;
+                    }
+                    unsafe {
+                        let _ = MessageBeep(0x0000_0040);
+                    }
                 }
             }
             PostCopyAction::EjectDisk => {
@@ -736,11 +904,21 @@ impl CopyFileApp {
                 {
                     if let Some(d) = dest {
                         if let Some(prefix) = d.to_str().and_then(|s| s.get(0..2)) {
+                            use std::os::windows::process::CommandExt;
                             use std::process::Command;
+                            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
                             let drive_letter = prefix.trim_end_matches(':');
                             let script = format!("(New-Object -comObject Shell.Application).Namespace(17).ParseName('{drive_letter}:').InvokeVerb('Eject')");
                             let _ = Command::new("powershell")
-                                .args(["-NoProfile", "-Command", &script])
+                                .args([
+                                    "-NoProfile",
+                                    "-NonInteractive",
+                                    "-WindowStyle",
+                                    "Hidden",
+                                    "-Command",
+                                    &script,
+                                ])
+                                .creation_flags(CREATE_NO_WINDOW)
                                 .spawn();
                         }
                     }
@@ -749,16 +927,21 @@ impl CopyFileApp {
             PostCopyAction::Sleep => {
                 #[cfg(windows)]
                 {
+                    use std::os::windows::process::CommandExt;
                     use std::process::Command;
+                    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
                     let _ = Command::new("rundll32.exe")
                         .args(["powrprof.dll,SetSuspendState", "0,1,0"])
+                        .creation_flags(CREATE_NO_WINDOW)
                         .spawn();
                 }
             }
             PostCopyAction::Shutdown => {
                 #[cfg(windows)]
                 {
+                    use std::os::windows::process::CommandExt;
                     use std::process::Command;
+                    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
                     let _ = Command::new("shutdown.exe")
                         .args([
                             "/s",
@@ -767,6 +950,7 @@ impl CopyFileApp {
                             "/c",
                             "CopyFile: Transferência de backup concluída com sucesso.",
                         ])
+                        .creation_flags(CREATE_NO_WINDOW)
                         .spawn();
                 }
             }
@@ -832,10 +1016,10 @@ impl eframe::App for CopyFileApp {
             ctx.request_repaint_after(Duration::from_millis(16)); // 60 FPS update during copy
         }
 
-        // Update Windows Taskbar Progress
+        // Update Windows Taskbar Progress ONLY when state or integer percentage actually changes
         #[cfg(windows)]
         {
-            if self.hwnd == 0 {
+            if self.hwnd == 0 && self.is_running {
                 use std::ffi::OsStr;
                 use std::os::windows::ffi::OsStrExt;
                 use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW;
@@ -849,22 +1033,32 @@ impl eframe::App for CopyFileApp {
                 }
             }
 
-            let taskbar_state = if !self.is_running {
-                crate::core::taskbar::TaskbarState::NoProgress
-            } else if self.is_paused {
-                crate::core::taskbar::TaskbarState::Paused
-            } else if self.error_files_count > 0 {
-                crate::core::taskbar::TaskbarState::Error
-            } else {
-                crate::core::taskbar::TaskbarState::Normal
-            };
+            if self.hwnd != 0 {
+                let taskbar_state = if !self.is_running {
+                    crate::core::taskbar::TaskbarState::NoProgress
+                } else if self.is_paused {
+                    crate::core::taskbar::TaskbarState::Paused
+                } else if self.error_files_count > 0 {
+                    crate::core::taskbar::TaskbarState::Error
+                } else {
+                    crate::core::taskbar::TaskbarState::Normal
+                };
 
-            self.taskbar.update(
-                self.hwnd,
-                self.processed_bytes,
-                self.total_bytes,
-                taskbar_state,
-            );
+                let pct_bucket = (self.processed_bytes.min(self.total_bytes) * 100)
+                    .checked_div(self.total_bytes)
+                    .unwrap_or(0);
+
+                let next_sig = (taskbar_state, pct_bucket);
+                if self.last_taskbar_state != Some(next_sig) {
+                    self.last_taskbar_state = Some(next_sig);
+                    self.taskbar.update(
+                        self.hwnd,
+                        self.processed_bytes.min(self.total_bytes),
+                        self.total_bytes,
+                        taskbar_state,
+                    );
+                }
+            }
         }
 
         // --- Top Header Panel ---
@@ -918,12 +1112,13 @@ impl eframe::App for CopyFileApp {
             }
         });
 
-        // --- Tab Navigation Bar ---
+        // --- Tab Navigation Bar (Compact labels -> Zero overlap with update badge at 800px!) ---
         TopBottomPanel::top("tabs_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let list_title = format!("📑 Lista de Arquivos ({})", self.entries.len());
-                let logs_title = format!("📜 Registro / Log ({})", self.logs.len());
-                let queue_title = format!("📑 Fila ({})", self.transfer_queue.waiting_count());
+                ui.spacing_mut().item_spacing.x = 6.0;
+                let list_title = format!("📑 Arquivos ({})", self.entries.len());
+                let logs_title = format!("📜 Logs ({})", self.logs.len());
+                let queue_title = format!("📋 Fila ({})", self.transfer_queue.waiting_count());
 
                 ui.selectable_value(&mut self.active_tab, AppTab::FileList, list_title);
                 ui.selectable_value(&mut self.active_tab, AppTab::Logs, logs_title);
@@ -931,11 +1126,11 @@ impl eframe::App for CopyFileApp {
                 ui.selectable_value(&mut self.active_tab, AppTab::Options, "⚙ Opções");
                 ui.selectable_value(&mut self.active_tab, AppTab::Stats, "📊 Estatísticas");
 
-                // Lado Direito: Botão "Sobre" e Alerta de Atualização
+                // Lado Direito: Botão "Sobre" e Pill compacta de Atualização
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let about_btn = egui::Button::new(
                         RichText::new("ℹ Sobre")
-                            .size(13.5)
+                            .size(13.0)
                             .strong()
                             .color(Color32::from_rgb(226, 232, 240)),
                     );
@@ -955,16 +1150,18 @@ impl eframe::App for CopyFileApp {
 
                     if let Some(ver) = has_update {
                         let update_pill = egui::Button::new(
-                            RichText::new(format!("⚡ Atualização v{ver} disponível!"))
+                            RichText::new(format!("⚡ v{ver}"))
                                 .strong()
-                                .size(13.0)
+                                .size(12.5)
                                 .color(Color32::WHITE),
                         )
                         .fill(Color32::from_rgb(0, 150, 60));
 
                         if ui
                             .add(update_pill)
-                            .on_hover_text("Nova versão detectada! Clique para ver e atualizar")
+                            .on_hover_text(format!(
+                                "Nova versão v{ver} disponível! Clique para baixar e atualizar"
+                            ))
                             .clicked()
                         {
                             self.show_about_modal = true;
@@ -981,6 +1178,10 @@ impl eframe::App for CopyFileApp {
                 render_file_list(
                     ui,
                     &self.entries,
+                    self.copied_files_count,
+                    self.skipped_files_count,
+                    self.error_files_count,
+                    self.last_active_entry_id,
                     &mut self.list_filter,
                     &mut self.search_query,
                     &mut self.auto_scroll,
@@ -1008,6 +1209,7 @@ impl eframe::App for CopyFileApp {
             }
             AppTab::Queue => {
                 let mut enqueue_requested = false;
+                let mut start_queue_requested = false;
                 render_queue_view(
                     ui,
                     &mut self.transfer_queue,
@@ -1015,9 +1217,13 @@ impl eframe::App for CopyFileApp {
                     &self.sources,
                     &self.destination,
                     || enqueue_requested = true,
+                    || start_queue_requested = true,
                 );
                 if enqueue_requested {
                     self.enqueue_current_selection();
+                }
+                if start_queue_requested {
+                    self.start_next_queued_job();
                 }
             }
             AppTab::Options => {
@@ -1044,7 +1250,7 @@ impl eframe::App for CopyFileApp {
                 );
 
                 if trigger_update {
-                    self.trigger_auto_update();
+                    self.trigger_auto_update(ctx);
                 }
                 if check_update {
                     self.check_updates_manual(ctx);
@@ -1134,7 +1340,6 @@ impl eframe::App for CopyFileApp {
                 self.start_copy();
             }
             if paste_explorer {
-                // Trigger standard Windows Explorer paste silently without any console window
                 #[cfg(windows)]
                 {
                     use std::os::windows::process::CommandExt;
@@ -1178,7 +1383,7 @@ impl eframe::App for CopyFileApp {
             );
 
             if trigger_update {
-                self.trigger_auto_update();
+                self.trigger_auto_update(ctx);
             }
             if check_update {
                 self.check_updates_manual(ctx);

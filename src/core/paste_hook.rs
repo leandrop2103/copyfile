@@ -139,13 +139,17 @@ unsafe extern "system" fn low_level_keyboard_proc(
     CallNextHookEx(std::ptr::null_mut(), n_code, w_param, l_param)
 }
 
+/// Enables or disables the active Ctrl+V interceptor at runtime.
+pub fn set_paste_interceptor_enabled(enabled: bool) {
+    IS_INTERCEPTOR_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 /// Starts the background thread that intercepts `Ctrl+V` within Windows Explorer and Desktop.
 pub fn start_paste_interceptor(is_enabled: Arc<AtomicBool>) {
+    IS_INTERCEPTOR_ENABLED.store(is_enabled.load(Ordering::Relaxed), Ordering::Relaxed);
     if HOOK_INITIALIZED.swap(true, Ordering::SeqCst) {
         return; // Already initialized
     }
-
-    IS_INTERCEPTOR_ENABLED.store(is_enabled.load(Ordering::Relaxed), Ordering::Relaxed);
 
     thread::spawn(move || {
         #[cfg(windows)]

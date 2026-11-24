@@ -20,7 +20,10 @@ pub use copier::{run_copy_batch, CopyController};
 pub use disk::{get_disk_space, DiskSpaceInfo};
 pub use hasher::{compute_file_xxhash, FastHasher};
 pub use metadata::copy_metadata;
-pub use paste_hook::{is_autostart_registered, set_autostart_registered, start_paste_interceptor};
+pub use paste_hook::{
+    is_autostart_registered, set_autostart_registered, set_paste_interceptor_enabled,
+    start_paste_interceptor,
+};
 pub use profiles::{
     get_current_user_presets, get_presets_for_user_path, list_all_windows_users, BackupPreset,
 };
@@ -29,5 +32,6 @@ pub use shell::{is_context_menu_registered, register_context_menu, unregister_co
 pub use taskbar::{TaskbarProgress, TaskbarState};
 pub use types::*;
 pub use updater::{
-    check_for_updates, clean_old_update_files, perform_auto_update, RemoteVersionInfo, UpdateStatus,
+    check_for_updates, check_for_updates_detailed, clean_old_update_files, perform_auto_update,
+    RemoteVersionInfo, UpdateStatus,
 };

@@ -53,6 +53,10 @@ pub struct CliArgs {
     /// Runs as a background daemon intercepting Ctrl+V in Windows Explorer
     #[arg(long = "watch-paste", default_value_t = false)]
     pub watch_paste: bool,
+
+    /// Internal flag passed after hot-swap auto-update to clean up the previous executable
+    #[arg(long = "cleanup-old", default_value_t = false, hide = true)]
+    pub cleanup_old: bool,
 }
 
 /// Runs the file transfer in CLI mode with console output.
@@ -171,7 +175,7 @@ pub fn run_cli(args: CliArgs) -> anyhow::Result<()> {
                     eprintln!("\n[LOG ERRO]: {}", log.message);
                 }
             }
-            CopyEvent::AllCompleted { total_duration } => {
+            CopyEvent::AllCompleted { total_duration, .. } => {
                 println!("\n\n============================================================");
                 println!(
                     "  Transferência Concluída em {}",

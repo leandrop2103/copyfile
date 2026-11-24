@@ -161,6 +161,18 @@ impl OverwritePolicy {
             Self::IfDiffers => "Substituir se tamanho/data diferir",
         }
     }
+
+    /// Compact label for tight horizontal toolbars to prevent overflow.
+    #[must_use]
+    pub const fn short_label(&self) -> &'static str {
+        match self {
+            Self::IfNewer => "Se mais recente",
+            Self::IfHashDiffers => "Verificar xxHash3",
+            Self::Always => "Sempre substituir",
+            Self::Never => "Pular existentes",
+            Self::IfDiffers => "Se tamanho/data diferir",
+        }
+    }
 }
 
 /// Transfer mode: standard copy, safe move, or mirror synchronization.
@@ -346,6 +358,8 @@ pub enum CopyEvent {
         total_bytes: u64,
         chunk_delta: u64,
     },
+    /// File is currently undergoing xxHash3 verification.
+    FileVerifying { id: usize },
     /// File completed successfully.
     FileCompleted {
         id: usize,
@@ -361,7 +375,10 @@ pub enum CopyEvent {
     /// File failed with an error.
     FileFailed { id: usize, error: String },
     /// Entire copy operation finished.
-    AllCompleted { total_duration: Duration },
+    AllCompleted {
+        total_duration: Duration,
+        cancelled: bool,
+    },
     /// New log message.
     Log(LogEntry),
 }

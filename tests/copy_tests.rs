@@ -570,3 +570,222 @@ fn test_formatting_utilities() {
     assert_eq!(format_duration(Duration::from_secs(65)), "1m 05s");
     assert_eq!(format_duration(Duration::from_secs(3665)), "1h 01m 05s");
 }
+
+#[test]
+fn test_pipelined_large_file_copy_and_verifying_event() {
+    let (src, dst) = setup_temp_dir("pipelined_large");
+    let big_file = src.join("large_payload.bin");
+    // 9 MiB exceeds the 8 MiB double-buffered pipeline threshold
+    let payload: Vec<u8> = (0..(9 * 1024 * 1024)).map(|i| (i % 251) as u8).collect();
+    fs::write(&big_file, &payload).unwrap();
+
+    let (entries, total_bytes) = scan_sources(std::slice::from_ref(&src), &dst);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(total_bytes, payload.len() as u64);
+
+    let (tx, rx) = unbounded();
+    let controller = CopyController::new();
+    let config = CopyConfig {
+        verify_checksum: true,
+        overwrite_policy: OverwritePolicy::Always,
+        num_threads: 2,
+        buffer_size_kb: 512,
+        ..Default::default()
+    };
+
+    run_copy_batch(entries, config, controller, tx);
+
+    let mut progress_bytes_sum = 0u64;
+    let mut saw_verifying = false;
+    let mut completed = 0;
+    while let Ok(event) = rx.recv() {
+        match event {
+            CopyEvent::FileProgress { chunk_delta, .. } => progress_bytes_sum += chunk_delta,
+            CopyEvent::FileVerifying { .. } => saw_verifying = true,
+            CopyEvent::FileCompleted { .. } => completed += 1,
+            _ => {}
+        }
+    }
+
+    assert_eq!(completed, 1);
+    assert!(
+        saw_verifying,
+        "Expected FileVerifying event before xxHash3 check"
+    );
+    assert_eq!(progress_bytes_sum, total_bytes);
+
+    let dst_file = dst.join("src").join("large_payload.bin");
+    assert_eq!(
+        compute_file_xxhash(&big_file, 512 * 1024, None).unwrap(),
+        compute_file_xxhash(&dst_file, 512 * 1024, None).unwrap()
+    );
+}
+
+#[test]
+fn test_small_files_flush_exact_progress_bytes() {
+    let (src, dst) = setup_temp_dir("small_progress");
+    for i in 0..25 {
+        fs::write(src.join(format!("tiny_{i}.txt")), format!("payload-{i:04}")).unwrap();
+    }
+
+    let (entries, total_bytes) = scan_sources(std::slice::from_ref(&src), &dst);
+    assert_eq!(entries.len(), 25);
+
+    let (tx, rx) = unbounded();
+    run_copy_batch(
+        entries,
+        CopyConfig {
+            verify_checksum: true,
+            overwrite_policy: OverwritePolicy::Always,
+            num_threads: 4,
+            ..Default::default()
+        },
+        CopyController::new(),
+        tx,
+    );
+
+    let mut sum_delta = 0u64;
+    let mut completed = 0;
+    while let Ok(ev) = rx.recv() {
+        match ev {
+            CopyEvent::FileProgress { chunk_delta, .. } => sum_delta += chunk_delta,
+            CopyEvent::FileCompleted { .. } => completed += 1,
+            _ => {}
+        }
+    }
+
+    assert_eq!(completed, 25);
+    assert_eq!(
+        sum_delta, total_bytes,
+        "Small files finishing under 30ms must still report all copied bytes"
+    );
+}
+
+#[test]
+fn test_self_overwrite_protection_does_not_truncate() {
+    let (src, _) = setup_temp_dir("self_overwrite");
+    let f = src.join("precious.txt");
+    fs::write(&f, "CRITICAL USER DATA").unwrap();
+
+    // Destination is the exact same folder as the file's parent
+    let (entries, _) = scan_sources(std::slice::from_ref(&f), &src);
+    assert_eq!(entries.len(), 1);
+
+    let (tx, rx) = unbounded();
+    run_copy_batch(
+        entries,
+        CopyConfig {
+            overwrite_policy: OverwritePolicy::Always,
+            ..Default::default()
+        },
+        CopyController::new(),
+        tx,
+    );
+
+    let mut skipped = 0;
+    while let Ok(ev) = rx.recv() {
+        if let CopyEvent::FileSkipped { .. } = ev {
+            skipped += 1;
+        }
+    }
+
+    assert_eq!(skipped, 1);
+    assert_eq!(fs::read_to_string(&f).unwrap(), "CRITICAL USER DATA");
+}
+
+#[test]
+fn test_readonly_destination_overwrite_and_timestamp_preservation() {
+    let (src, dst) = setup_temp_dir("readonly_overwrite");
+    let src_file = src.join("ro_test.txt");
+    fs::write(&src_file, "Updated readonly content").unwrap();
+
+    let past_time = FileTime::from_unix_time(1_650_000_000, 0);
+    set_file_mtime(&src_file, past_time).unwrap();
+    let mut perms = fs::metadata(&src_file).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&src_file, perms).unwrap();
+
+    // Create existing read-only destination file
+    let dst_sub = dst.join("src");
+    fs::create_dir_all(&dst_sub).unwrap();
+    let dst_file = dst_sub.join("ro_test.txt");
+    fs::write(&dst_file, "Old readonly content").unwrap();
+    let mut dst_perms = fs::metadata(&dst_file).unwrap().permissions();
+    dst_perms.set_readonly(true);
+    fs::set_permissions(&dst_file, dst_perms).unwrap();
+
+    let (entries, _) = scan_sources(std::slice::from_ref(&src), &dst);
+    let (tx, rx) = unbounded();
+    run_copy_batch(
+        entries,
+        CopyConfig {
+            overwrite_policy: OverwritePolicy::Always,
+            preserve_metadata: true,
+            ..Default::default()
+        },
+        CopyController::new(),
+        tx,
+    );
+
+    let mut completed = 0;
+    while let Ok(ev) = rx.recv() {
+        if let CopyEvent::FileCompleted { .. } = ev {
+            completed += 1;
+        }
+    }
+    assert_eq!(completed, 1);
+    assert_eq!(
+        fs::read_to_string(&dst_file).unwrap(),
+        "Updated readonly content"
+    );
+
+    let meta_dst = fs::metadata(&dst_file).unwrap();
+    assert_eq!(
+        FileTime::from_last_modification_time(&meta_dst).unix_seconds(),
+        1_650_000_000
+    );
+
+    // Cleanup readonly flags so temp dir can be removed cleanly on next run
+    let mut p1 = fs::metadata(&src_file).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    p1.set_readonly(false);
+    let _ = fs::set_permissions(&src_file, p1);
+    let mut p2 = meta_dst.permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    p2.set_readonly(false);
+    let _ = fs::set_permissions(&dst_file, p2);
+}
+
+#[test]
+fn test_cli_accepts_cleanup_old_flag_for_hotswap_update() {
+    use clap::Parser;
+    use copyfile::cli::CliArgs;
+
+    let parsed = CliArgs::try_parse_from(["copyfile", "--cleanup-old"]);
+    assert!(
+        parsed.is_ok(),
+        "CliArgs must accept --cleanup-old after hot-swap relaunch"
+    );
+    assert!(parsed.unwrap().cleanup_old);
+}
+
+#[test]
+fn test_cancelled_batch_reports_cancelled_all_completed() {
+    let (src, dst) = setup_temp_dir("cancel_flag");
+    fs::write(src.join("a.txt"), "hello").unwrap();
+    let (entries, _) = scan_sources(std::slice::from_ref(&src), &dst);
+
+    let controller = CopyController::new();
+    controller.cancel();
+
+    let (tx, rx) = unbounded();
+    run_copy_batch(entries, CopyConfig::default(), controller, tx);
+
+    let mut saw_cancelled = false;
+    while let Ok(ev) = rx.recv() {
+        if let CopyEvent::AllCompleted { cancelled, .. } = ev {
+            saw_cancelled = cancelled;
+        }
+    }
+    assert!(saw_cancelled);
+}

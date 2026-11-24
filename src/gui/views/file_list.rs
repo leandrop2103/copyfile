@@ -1,4 +1,5 @@
-//! File list view rendered as a virtualized table with status color coding and auto-scrolling.
+//! File list view rendered as a virtualized table with O(1) unfiltered fast-path,
+//! fast ASCII case-insensitive filtering, clipped columns, and smart auto-scrolling.
 
 use crate::core::format::format_bytes;
 use crate::core::types::{FileEntry, FileStatus};
@@ -16,76 +17,76 @@ pub enum ListFilter {
     ErrorsOnly,
 }
 
-fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
-    if needle.is_empty() {
+/// Fast case-insensitive substring search (O(n) byte-level fast path for ASCII).
+#[inline]
+fn contains_case_insensitive(haystack: &str, needle_lower: &str) -> bool {
+    if needle_lower.is_empty() {
         return true;
     }
-    haystack.char_indices().any(|(i, _)| {
-        haystack[i..]
-            .chars()
-            .zip(needle.chars())
-            .all(|(h, n)| h.to_lowercase().eq(n.to_lowercase()))
-    })
+    if haystack.is_ascii() && needle_lower.is_ascii() {
+        let h = haystack.as_bytes();
+        let n = needle_lower.as_bytes();
+        if n.len() > h.len() {
+            return false;
+        }
+        return h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n));
+    }
+    haystack.to_lowercase().contains(needle_lower)
 }
 
-/// Renders the file list table.
+/// Renders the file list table with O(1) counts and zero-allocation fast path when unfiltered.
+#[allow(clippy::too_many_arguments)]
 pub fn render_file_list(
     ui: &mut Ui,
     entries: &[FileEntry],
+    success_count: usize,
+    skipped_count: usize,
+    error_count: usize,
+    last_active_entry_id: Option<usize>,
     filter: &mut ListFilter,
     search_query: &mut String,
     auto_scroll: &mut bool,
     is_running: bool,
     on_retry_failed: impl FnOnce(),
 ) {
-    // Count items by status
-    let (mut success_count, mut skipped_count, mut error_count) = (0, 0, 0);
-    for entry in entries {
-        match &entry.status {
-            FileStatus::Success { .. } => success_count += 1,
-            FileStatus::Skipped { .. } => skipped_count += 1,
-            FileStatus::Error { .. } => error_count += 1,
-            _ => {}
-        }
-    }
     let total_count = entries.len();
 
-    // --- Toolbar ---
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Filtrar:").strong().size(15.0));
+    // --- Responsive Toolbar (Never overflows or collides at 800px!) ---
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.label(RichText::new("Filtrar:").strong().size(14.0));
 
         ui.selectable_value(
             filter,
             ListFilter::All,
-            RichText::new(format!("Todos ({total_count})")).size(14.0),
+            RichText::new(format!("Todos ({total_count})")).size(13.5),
         );
         ui.selectable_value(
             filter,
             ListFilter::SuccessOnly,
-            RichText::new(format!("✔ Concluídos ({success_count})"))
-                .size(14.0)
+            RichText::new(format!("✔ OK ({success_count})"))
+                .size(13.5)
                 .color(COLOR_SUCCESS),
         );
         ui.selectable_value(
             filter,
             ListFilter::SkippedOnly,
-            RichText::new(format!("⚠ Ignorados ({skipped_count})"))
-                .size(14.0)
+            RichText::new(format!("⚠ Pul. ({skipped_count})"))
+                .size(13.5)
                 .color(COLOR_WARNING),
         );
         ui.selectable_value(
             filter,
             ListFilter::ErrorsOnly,
             RichText::new(format!("✖ Erros ({error_count})"))
-                .size(14.0)
+                .size(13.5)
                 .color(COLOR_ERROR),
         );
 
         if !is_running && error_count > 0 {
-            ui.add_space(8.0);
             let retry_btn = egui::Button::new(
-                RichText::new(format!("🔁 Tentar Novamente com Falhas ({error_count})"))
-                    .size(13.5)
+                RichText::new(format!("🔁 Retentar ({error_count})"))
+                    .size(13.0)
                     .strong()
                     .color(eframe::egui::Color32::WHITE),
             )
@@ -102,55 +103,60 @@ pub fn render_file_list(
 
         ui.separator();
 
-        ui.label(RichText::new("🔍").size(15.0));
+        ui.label(RichText::new("🔍").size(14.0));
         ui.add(
             egui::TextEdit::singleline(search_query)
-                .hint_text("Buscar por nome de arquivo...")
-                .desired_width(200.0),
+                .hint_text("Buscar arquivo...")
+                .desired_width(160.0),
         );
 
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.checkbox(
-                auto_scroll,
-                RichText::new("⬇ Auto rolagem").strong().size(14.0),
-            );
-        });
+        ui.checkbox(
+            auto_scroll,
+            RichText::new("⬇ Auto rolagem").strong().size(13.5),
+        );
     });
 
     ui.add_space(4.0);
     ui.separator();
     ui.add_space(4.0);
 
-    // Filter items based on active criteria and search query
-    let filtered_indices: Vec<usize> = entries
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| {
-            // Status filter
-            let status_match = match filter {
-                ListFilter::All => true,
-                ListFilter::SuccessOnly => matches!(entry.status, FileStatus::Success { .. }),
-                ListFilter::SkippedOnly => matches!(entry.status, FileStatus::Skipped { .. }),
-                ListFilter::ErrorsOnly => matches!(entry.status, FileStatus::Error { .. }),
-            };
+    // O(1) Fast Path when showing all entries without search query (avoids allocating 50k+ Vec every frame!)
+    let is_unfiltered = *filter == ListFilter::All && search_query.is_empty();
+    let filtered_indices: Vec<usize> = if is_unfiltered {
+        Vec::new()
+    } else {
+        let q = search_query.to_lowercase();
+        entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                let status_match = match filter {
+                    ListFilter::All => true,
+                    ListFilter::SuccessOnly => matches!(entry.status, FileStatus::Success { .. }),
+                    ListFilter::SkippedOnly => matches!(entry.status, FileStatus::Skipped { .. }),
+                    ListFilter::ErrorsOnly => matches!(entry.status, FileStatus::Error { .. }),
+                };
+                if !status_match {
+                    return false;
+                }
+                if q.is_empty() {
+                    true
+                } else {
+                    contains_case_insensitive(&entry.source_path.to_string_lossy(), &q)
+                        || contains_case_insensitive(&entry.dest_path.to_string_lossy(), &q)
+                }
+            })
+            .map(|(i, _)| i)
+            .collect()
+    };
 
-            if !status_match {
-                return false;
-            }
+    let row_count = if is_unfiltered {
+        entries.len()
+    } else {
+        filtered_indices.len()
+    };
 
-            // Search filter
-            if search_query.is_empty() {
-                true
-            } else {
-                let q = search_query.to_lowercase();
-                contains_case_insensitive(&entry.source_path.to_string_lossy(), &q)
-                    || contains_case_insensitive(&entry.dest_path.to_string_lossy(), &q)
-            }
-        })
-        .map(|(i, _)| i)
-        .collect();
-
-    if filtered_indices.is_empty() {
+    if row_count == 0 {
         ui.vertical_centered(|ui| {
             ui.add_space(60.0);
             ui.label(
@@ -163,23 +169,21 @@ pub fn render_file_list(
         return;
     }
 
-    // Find active copying file or most recently processed file for auto-scrolling
-    let active_row_idx = if is_running {
-        // Priority 1: Currently copying or verifying file
-        filtered_indices
-            .iter()
-            .position(|&idx| {
-                matches!(
-                    entries[idx].status,
-                    FileStatus::Copying { .. } | FileStatus::Verifying
-                )
-            })
-            // Priority 2: Most recently processed file (Success, Skipped with xxHash match, Error)
-            .or_else(|| {
-                filtered_indices
-                    .iter()
-                    .rposition(|&idx| !matches!(entries[idx].status, FileStatus::Pending))
-            })
+    // O(1) active row lookup when unfiltered, binary-search lookup when filtered!
+    let active_row_idx = if is_running && *auto_scroll {
+        if let Some(active_id) = last_active_entry_id {
+            if is_unfiltered {
+                if active_id < entries.len() {
+                    Some(active_id)
+                } else {
+                    None
+                }
+            } else {
+                filtered_indices.binary_search(&active_id).ok()
+            }
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -195,7 +199,7 @@ pub fn render_file_list(
         });
     }
 
-    // --- Excel-like Scrollable Table with Horizontal & Vertical Freedom ---
+    // --- Excel-like Scrollable Table with Clipped Columns (Zero bleed!) ---
     ScrollArea::horizontal()
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -203,12 +207,12 @@ pub fn render_file_list(
                 .striped(true)
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .column(Column::exact(36.0)) // Status Icon Only
-                .column(Column::initial(300.0).at_least(140.0)) // Origem / Caminho
-                .column(Column::exact(100.0)) // xxHash
+                .column(Column::exact(36.0)) // Status Icon
+                .column(Column::initial(320.0).at_least(140.0).clip(true)) // Origem / Caminho
+                .column(Column::exact(112.0).clip(true)) // xxHash3
                 .column(Column::exact(85.0)) // Tamanho
-                .column(Column::exact(65.0)) // Atributos
-                .column(Column::initial(200.0).at_least(100.0)); // Detalhes / Motivo
+                .column(Column::exact(60.0)) // Atributos
+                .column(Column::remainder().at_least(140.0).clip(true)); // Detalhes / Motivo
 
             if *auto_scroll {
                 if let Some(active_idx) = active_row_idx {
@@ -217,7 +221,7 @@ pub fn render_file_list(
             }
 
             table
-                .header(28.0, |mut header| {
+                .header(26.0, |mut header| {
                     header.col(|ui| {
                         ui.label(
                             RichText::new("⚡")
@@ -225,36 +229,41 @@ pub fn render_file_list(
                                 .color(COLOR_ACCENT)
                                 .strong(),
                         )
-                        .on_hover_text("Status da transferência (✔ Concluído, ⚡ Copiando, ❌ Erro, ⏭ Ignorado)");
+                        .on_hover_text(
+                            "Status da transferência (✔ Concluído, ⚡ Copiando, 🔍 Verificando, ❌ Erro, ⏭ Ignorado)",
+                        );
                     });
                     header.col(|ui| {
-                        ui.strong(RichText::new("Arquivo / Origem").size(14.0));
+                        ui.strong(RichText::new("Arquivo / Origem").size(13.5));
                     });
                     header.col(|ui| {
-                        ui.strong(RichText::new("xxHash3").size(14.0));
+                        ui.strong(RichText::new("xxHash3").size(13.5));
                     });
                     header.col(|ui| {
-                        ui.strong(RichText::new("Tamanho").size(14.0));
+                        ui.strong(RichText::new("Tamanho").size(13.5));
                     });
                     header.col(|ui| {
-                        ui.strong(RichText::new("Atrib.").size(14.0));
+                        ui.strong(RichText::new("Atrib.").size(13.5));
                     });
                     header.col(|ui| {
-                        ui.strong(RichText::new("Detalhes / Erro").size(14.0));
+                        ui.strong(RichText::new("Detalhes / Erro").size(13.5));
                     });
                 })
                 .body(|body| {
-                    let row_height = 26.0;
-                    body.rows(row_height, filtered_indices.len(), |mut row| {
+                    let row_height = 25.0;
+                    body.rows(row_height, row_count, |mut row| {
                         let row_index = row.index();
-                        let entry_idx = filtered_indices[row_index];
+                        let entry_idx = if is_unfiltered {
+                            row_index
+                        } else {
+                            filtered_indices[row_index]
+                        };
                         let entry = &entries[entry_idx];
 
-                        // Determine text color and icon based on status
                         let (status_text, status_color, status_icon) = match &entry.status {
                             FileStatus::Pending => ("Pendente", COLOR_MUTED, "⏳"),
                             FileStatus::Copying { .. } => ("Copiando...", COLOR_ACCENT, "⚡"),
-                            FileStatus::Verifying => ("Verificando...", COLOR_ACCENT, "🔍"),
+                            FileStatus::Verifying => ("Verificando xxHash3...", COLOR_WARNING, "🔍"),
                             FileStatus::Success { .. } => {
                                 ("Concluído com sucesso", COLOR_SUCCESS, "✔")
                             }
@@ -267,7 +276,7 @@ pub fn render_file_list(
                             ui.label(
                                 RichText::new(status_icon)
                                     .color(status_color)
-                                    .size(15.0)
+                                    .size(14.5)
                                     .strong(),
                             )
                             .on_hover_text(status_text);
@@ -276,20 +285,38 @@ pub fn render_file_list(
                         // Column 2: Source Path
                         row.col(|ui| {
                             let text = entry.source_path.to_string_lossy();
-                            let resp = ui.label(RichText::new(text).color(status_color).size(13.0));
+                            let resp = ui
+                                .add(
+                                    egui::Label::new(
+                                        RichText::new(text.as_ref())
+                                            .color(status_color)
+                                            .size(13.0),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(text.as_ref());
                             resp.context_menu(|ui| {
-                                if ui.button("📂 Abrir local do arquivo").clicked() {
+                                if ui.button("📂 Abrir local da origem").clicked() {
                                     if let Some(parent) = entry.source_path.parent() {
-                                        let _ = std::process::Command::new("explorer").arg(parent).spawn();
+                                        let _ =
+                                            std::process::Command::new("explorer").arg(parent).spawn();
+                                    }
+                                    ui.close_menu();
+                                }
+                                if ui.button("🎯 Abrir pasta de destino").clicked() {
+                                    if let Some(parent) = entry.dest_path.parent() {
+                                        let _ =
+                                            std::process::Command::new("explorer").arg(parent).spawn();
                                     }
                                     ui.close_menu();
                                 }
                                 if ui.button("📋 Copiar caminho completo").clicked() {
-                                    ui.ctx().copy_text(entry.source_path.to_string_lossy().to_string());
+                                    ui.ctx()
+                                        .copy_text(entry.source_path.to_string_lossy().to_string());
                                     ui.close_menu();
                                 }
                                 if let Some(hash) = &entry.hash {
-                                    if ui.button("#️⃣ Copiar hash xxHash3").clicked() {
+                                    if !hash.is_empty() && ui.button("#️⃣ Copiar hash xxHash3").clicked() {
                                         ui.ctx().copy_text(hash.clone());
                                         ui.close_menu();
                                     }
@@ -299,47 +326,74 @@ pub fn render_file_list(
 
                         // Column 3: Checksum Hash
                         row.col(|ui| {
-                            let hash_str = entry.hash.as_deref().unwrap_or("-");
-                            ui.label(
-                                RichText::new(hash_str)
-                                    .monospace()
-                                    .size(13.0)
-                                    .color(COLOR_ACCENT),
+                            let hash_str = entry
+                                .hash
+                                .as_deref()
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or("-");
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(hash_str)
+                                        .monospace()
+                                        .size(12.5)
+                                        .color(COLOR_ACCENT),
+                                )
+                                .truncate(),
                             );
                         });
 
-                        // Column 5: File Size
+                        // Column 4: File Size
                         row.col(|ui| {
                             ui.label(
                                 RichText::new(format_bytes(entry.size))
-                                    .size(13.0)
+                                    .size(12.5)
                                     .monospace(),
                             );
                         });
 
-                        // Column 6: Attributes
+                        // Column 5: Attributes
                         row.col(|ui| {
                             ui.label(
                                 RichText::new(&entry.attributes)
                                     .monospace()
-                                    .size(13.0)
+                                    .size(12.5)
                                     .color(COLOR_MUTED),
                             );
                         });
 
-                        // Column 7: Details / Error Reason
+                        // Column 6: Details / Error Reason
                         row.col(|ui| match &entry.status {
                             FileStatus::Error { error } => {
-                                ui.label(RichText::new(error).color(COLOR_ERROR).size(13.0));
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(error).color(COLOR_ERROR).size(12.5),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(error);
                             }
                             FileStatus::Skipped { reason } => {
-                                ui.label(RichText::new(reason).color(COLOR_WARNING).size(13.0));
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(reason).color(COLOR_WARNING).size(12.5),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(reason);
+                            }
+                            FileStatus::Verifying => {
+                                ui.label(
+                                    RichText::new("Verificando integridade...")
+                                        .color(COLOR_WARNING)
+                                        .size(12.5)
+                                        .strong(),
+                                );
                             }
                             FileStatus::Success { duration_ms, .. } => {
                                 ui.label(
                                     RichText::new(format!("{duration_ms}ms"))
                                         .color(COLOR_SUCCESS)
-                                        .size(13.0),
+                                        .size(12.5),
                                 );
                             }
                             FileStatus::Copying {
@@ -354,12 +408,12 @@ pub fn render_file_list(
                                 ui.label(
                                     RichText::new(format!("{pct:.1}%"))
                                         .color(COLOR_ACCENT)
-                                        .size(13.0)
+                                        .size(12.5)
                                         .strong(),
                                 );
                             }
-                            _ => {
-                                ui.label(RichText::new("-").color(COLOR_MUTED).size(13.0));
+                            FileStatus::Pending => {
+                                ui.label(RichText::new("-").color(COLOR_MUTED).size(12.5));
                             }
                         });
                     });

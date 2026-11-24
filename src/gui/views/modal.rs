@@ -1,4 +1,4 @@
-//! Completion statistics modal dialog.
+//! Modal dialogs: Completion summary, Sources manager, TeraCopy-style Paste prompt, and About/Updater.
 
 use crate::core::exporter::{export_csv_report, export_html_report};
 use crate::core::format::{format_bytes, format_duration};
@@ -32,8 +32,8 @@ pub fn render_completion_modal(
     }
 
     let mut open_logs_requested = false;
-    let mut open_folder_requested = false;
     let mut retry_errors_requested = false;
+    let modal_width = (ctx.screen_rect().width() - 48.0).clamp(440.0, 580.0);
 
     egui::Window::new("🎉 Transferência Concluída!")
         .collapsible(false)
@@ -44,10 +44,10 @@ pub fn render_completion_modal(
                 .fill(Color32::from_rgb(15, 23, 42))
                 .stroke(Stroke::new(1.5_f32, Color32::from_rgb(51, 65, 85)))
                 .corner_radius(CornerRadius::same(12))
-                .inner_margin(egui::Margin::same(24)),
+                .inner_margin(egui::Margin::same(20)),
         )
         .show(ctx, |ui| {
-            ui.set_width(520.0);
+            ui.set_width(modal_width);
 
             // Modal Header
             ui.vertical_centered(|ui| {
@@ -65,32 +65,31 @@ pub fn render_completion_modal(
 
                 ui.label(
                     RichText::new(format!("{icon} {header_title}"))
-                        .size(20.0)
+                        .size(19.0)
                         .strong()
                         .color(header_color),
                 );
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new(format!("Modo de operação: {transfer_mode_name}"))
-                        .size(13.5)
+                        .size(13.0)
                         .color(Color32::from_rgb(148, 163, 184)),
                 );
             });
 
-            ui.add_space(14.0);
+            ui.add_space(12.0);
 
             // Detailed Statistics Grid Card
             egui::Frame::NONE
                 .fill(Color32::from_rgb(24, 33, 47))
                 .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
                 .corner_radius(CornerRadius::same(8))
-                .inner_margin(egui::Margin::same(16))
+                .inner_margin(egui::Margin::same(14))
                 .show(ui, |ui| {
                     egui::Grid::new("completion_modal_grid")
                         .num_columns(2)
-                        .spacing([32.0, 10.0])
+                        .spacing([28.0, 8.0])
                         .show(ui, |ui| {
-                            // Row 1: Volume
                             ui.label(
                                 RichText::new("📦 Volume Total:")
                                     .size(13.5)
@@ -99,7 +98,6 @@ pub fn render_completion_modal(
                             ui.label(RichText::new(format_bytes(total_bytes)).size(13.5).strong());
                             ui.end_row();
 
-                            // Row 2: Total Files & Folders
                             ui.label(
                                 RichText::new("📁 Pastas / Arquivos:")
                                     .size(13.5)
@@ -114,7 +112,6 @@ pub fn render_completion_modal(
                             );
                             ui.end_row();
 
-                            // Row 3: Copied Successfully
                             ui.label(
                                 RichText::new("✔ Copiados / Processados:")
                                     .size(13.5)
@@ -128,7 +125,6 @@ pub fn render_completion_modal(
                             );
                             ui.end_row();
 
-                            // Row 4: Skipped
                             if skipped_files > 0 {
                                 ui.label(
                                     RichText::new("⏭ Ignorados (Existentes):")
@@ -143,7 +139,6 @@ pub fn render_completion_modal(
                                 ui.end_row();
                             }
 
-                            // Row 5: Errors
                             if error_files > 0 {
                                 ui.label(
                                     RichText::new("❌ Falhas na Cópia:")
@@ -159,7 +154,6 @@ pub fn render_completion_modal(
                                 ui.end_row();
                             }
 
-                            // Row 6: Duration & Average Speed
                             ui.label(
                                 RichText::new("⏱ Tempo & Velocidade:")
                                     .size(13.5)
@@ -179,12 +173,12 @@ pub fn render_completion_modal(
                         });
                 });
 
-            ui.add_space(14.0);
+            ui.add_space(12.0);
 
             // Export Audit Reports Row
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(
-                    RichText::new("📄 Relatórios de Auditoria:")
+                    RichText::new("📄 Relatórios:")
                         .size(13.0)
                         .color(COLOR_MUTED),
                 );
@@ -227,24 +221,25 @@ pub fn render_completion_modal(
                 }
             });
 
-            ui.add_space(14.0);
+            ui.add_space(12.0);
             ui.separator();
-            ui.add_space(14.0);
+            ui.add_space(12.0);
 
-            // Modal Action Buttons
-            ui.horizontal(|ui| {
+            // Modal Action Buttons (Guaranteed to fit inside 580px even with Retry button!)
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+
                 if let Some(dst) = destination {
                     let open_btn =
-                        egui::Button::new(RichText::new("📂 Abrir Pasta").size(14.0).strong())
-                            .min_size(Vec2::new(130.0, 36.0));
+                        egui::Button::new(RichText::new("📂 Abrir Pasta").size(13.5).strong())
+                            .min_size(Vec2::new(115.0, 34.0));
                     if ui.add(open_btn).clicked() {
-                        open_folder_requested = true;
                         let _ = std::process::Command::new("explorer.exe").arg(dst).spawn();
                     }
                 }
 
-                let logs_btn = egui::Button::new(RichText::new("📜 Ver Logs").size(14.0).strong())
-                    .min_size(Vec2::new(100.0, 36.0));
+                let logs_btn = egui::Button::new(RichText::new("📜 Logs").size(13.5).strong())
+                    .min_size(Vec2::new(82.0, 34.0));
                 if ui.add(logs_btn).clicked() {
                     open_logs_requested = true;
                     *is_open = false;
@@ -252,13 +247,13 @@ pub fn render_completion_modal(
 
                 if error_files > 0 {
                     let retry_btn = egui::Button::new(
-                        RichText::new(format!("🔁 Tentar Novamente ({error_files})"))
-                            .size(14.0)
+                        RichText::new(format!("🔁 Retentar ({error_files})"))
+                            .size(13.5)
                             .strong()
                             .color(Color32::WHITE),
                     )
                     .fill(COLOR_ERROR)
-                    .min_size(Vec2::new(180.0, 36.0));
+                    .min_size(Vec2::new(135.0, 34.0));
                     if ui.add(retry_btn).clicked() {
                         retry_errors_requested = true;
                         *is_open = false;
@@ -268,12 +263,12 @@ pub fn render_completion_modal(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let close_btn = egui::Button::new(
                         RichText::new("✔ Concluir")
-                            .size(14.0)
+                            .size(13.5)
                             .strong()
                             .color(Color32::WHITE),
                     )
                     .fill(Color32::from_rgb(16, 185, 129))
-                    .min_size(Vec2::new(110.0, 36.0));
+                    .min_size(Vec2::new(105.0, 34.0));
 
                     if ui.add(close_btn).clicked() {
                         *is_open = false;
@@ -288,7 +283,6 @@ pub fn render_completion_modal(
     if retry_errors_requested {
         on_retry_errors();
     }
-    let _ = open_folder_requested;
 }
 
 /// Renders the Source Folders & Files manager modal dialog.
@@ -303,17 +297,20 @@ pub fn render_sources_manager_modal(
         return;
     }
 
+    let max_w = (ctx.screen_rect().width() - 60.0).clamp(460.0, 720.0);
+    let max_h = (ctx.screen_rect().height() - 80.0).clamp(360.0, 500.0);
+
     egui::Window::new("📁 Gerenciador de Pastas e Arquivos de Origem")
         .collapsible(false)
         .resizable(true)
-        .default_size(Vec2::new(700.0, 480.0))
+        .default_size(Vec2::new(max_w, max_h))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .frame(
             egui::Frame::NONE
                 .fill(Color32::from_rgb(15, 23, 42))
                 .stroke(Stroke::new(1.5_f32, Color32::from_rgb(59, 130, 246)))
                 .corner_radius(CornerRadius::same(10))
-                .inner_margin(egui::Margin::same(20)),
+                .inner_margin(egui::Margin::same(18)),
         )
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -321,13 +318,13 @@ pub fn render_sources_manager_modal(
                 ui.add(
                     egui::TextEdit::singleline(search_query)
                         .hint_text("Filtrar pastas ou arquivos adicionados...")
-                        .desired_width(320.0),
+                        .desired_width((ui.available_width() - 140.0).clamp(180.0, 360.0)),
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if !is_running && !sources.is_empty() {
                         let clear_btn = egui::Button::new(
-                            RichText::new("🗑 Limpar Tudo").color(COLOR_ERROR).size(13.5),
+                            RichText::new("🗑 Limpar Tudo").color(COLOR_ERROR).size(13.0),
                         );
                         if ui.add(clear_btn).clicked() {
                             sources.clear();
@@ -345,7 +342,7 @@ pub fn render_sources_manager_modal(
 
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
-                .max_height(320.0)
+                .max_height((max_h - 170.0).max(160.0))
                 .show(ui, |ui| {
                     if sources.is_empty() {
                         ui.vertical_centered(|ui| {
@@ -371,33 +368,43 @@ pub fn render_sources_manager_modal(
                                 .fill(Color32::from_rgb(24, 33, 47))
                                 .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
                                 .corner_radius(CornerRadius::same(6))
-                                .inner_margin(egui::Margin::symmetric(12, 8))
+                                .inner_margin(egui::Margin::symmetric(10, 6))
                                 .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(RichText::new(icon).size(16.0));
-                                        ui.label(
-                                            RichText::new(path_str.to_string())
-                                                .size(13.5)
-                                                .strong()
-                                                .color(Color32::from_rgb(226, 232, 240)),
-                                        );
-
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                if !is_running {
-                                                    let rem_btn = egui::Button::new(
-                                                        RichText::new("✖ Remover")
-                                                            .color(COLOR_ERROR)
-                                                            .size(12.5),
-                                                    );
-                                                    if ui.add(rem_btn).clicked() {
-                                                        remove_idx = Some(idx);
-                                                    }
+                                    // Draw right-aligned Remove button FIRST so long paths truncate safely!
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            if !is_running {
+                                                let rem_btn = egui::Button::new(
+                                                    RichText::new("✖ Remover")
+                                                        .color(COLOR_ERROR)
+                                                        .size(12.5),
+                                                );
+                                                if ui.add(rem_btn).clicked() {
+                                                    remove_idx = Some(idx);
                                                 }
-                                            },
-                                        );
-                                    });
+                                            }
+
+                                            ui.with_layout(
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| {
+                                                    ui.label(RichText::new(icon).size(15.0));
+                                                    ui.add(
+                                                        egui::Label::new(
+                                                            RichText::new(path_str.as_ref())
+                                                                .size(13.0)
+                                                                .strong()
+                                                                .color(Color32::from_rgb(
+                                                                    226, 232, 240,
+                                                                )),
+                                                        )
+                                                        .truncate(),
+                                                    )
+                                                    .on_hover_text(path_str.as_ref());
+                                                },
+                                            );
+                                        },
+                                    );
                                 });
                             ui.add_space(4.0);
                         }
@@ -408,14 +415,13 @@ pub fn render_sources_manager_modal(
                 sources.remove(idx);
             }
 
-            ui.add_space(12.0);
+            ui.add_space(10.0);
             ui.separator();
             ui.add_space(10.0);
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if !is_running {
-                    let add_fld =
-                        egui::Button::new(RichText::new("📁 + Adicionar Pastas").size(13.5));
+                    let add_fld = egui::Button::new(RichText::new("📁 + Pastas").size(13.0));
                     if ui.add(add_fld).clicked() {
                         if let Some(folders) = rfd::FileDialog::new().pick_folders() {
                             for f in folders {
@@ -425,8 +431,7 @@ pub fn render_sources_manager_modal(
                             }
                         }
                     }
-                    let add_fls =
-                        egui::Button::new(RichText::new("📄 + Adicionar Arquivos").size(13.5));
+                    let add_fls = egui::Button::new(RichText::new("📄 + Arquivos").size(13.0));
                     if ui.add(add_fls).clicked() {
                         if let Some(files) = rfd::FileDialog::new().pick_files() {
                             for f in files {
@@ -442,11 +447,11 @@ pub fn render_sources_manager_modal(
                     let close_btn = egui::Button::new(
                         RichText::new("✔ Concluir")
                             .strong()
-                            .size(14.0)
+                            .size(13.5)
                             .color(Color32::WHITE),
                     )
                     .fill(Color32::from_rgb(37, 99, 235))
-                    .min_size(Vec2::new(110.0, 34.0));
+                    .min_size(Vec2::new(105.0, 32.0));
                     if ui.add(close_btn).clicked() {
                         *is_open = false;
                     }
@@ -470,6 +475,7 @@ pub fn render_paste_prompt_modal(
 
     let mut paste_copyfile_requested = false;
     let mut paste_explorer_requested = false;
+    let modal_width = (ctx.screen_rect().width() - 48.0).clamp(400.0, 480.0);
 
     egui::Window::new("⚡ CopyFile - Colar Arquivos")
         .collapsible(false)
@@ -480,10 +486,10 @@ pub fn render_paste_prompt_modal(
                 .fill(Color32::from_rgb(15, 23, 42))
                 .stroke(Stroke::new(1.5_f32, Color32::from_rgb(59, 130, 246)))
                 .corner_radius(CornerRadius::same(12))
-                .inner_margin(egui::Margin::same(24)),
+                .inner_margin(egui::Margin::same(22)),
         )
         .show(ctx, |ui| {
-            ui.set_width(460.0);
+            ui.set_width(modal_width);
 
             ui.vertical_centered(|ui| {
                 ui.label(
@@ -505,24 +511,29 @@ pub fn render_paste_prompt_modal(
             ui.add_space(12.0);
 
             if let Some(dst) = destination {
+                let dst_str = dst.display().to_string();
                 egui::Frame::NONE
                     .fill(Color32::from_rgb(24, 33, 47))
                     .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
                     .corner_radius(CornerRadius::same(6))
                     .inner_margin(egui::Margin::symmetric(12, 8))
                     .show(ui, |ui| {
-                        ui.label(
-                            RichText::new(format!("🎯 Destino: {}", dst.display()))
-                                .size(13.0)
-                                .color(Color32::from_rgb(52, 211, 153))
-                                .strong(),
-                        );
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("🎯 Destino: {dst_str}"))
+                                    .size(13.0)
+                                    .color(Color32::from_rgb(52, 211, 153))
+                                    .strong(),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(&dst_str);
                     });
             }
 
-            ui.add_space(16.0);
+            ui.add_space(14.0);
             ui.separator();
-            ui.add_space(16.0);
+            ui.add_space(14.0);
 
             ui.horizontal(|ui| {
                 let explorer_btn = egui::Button::new(
@@ -532,7 +543,7 @@ pub fn render_paste_prompt_modal(
                         .color(Color32::from_rgb(203, 213, 225)),
                 )
                 .fill(Color32::from_rgb(51, 65, 85))
-                .min_size(Vec2::new(180.0, 36.0));
+                .min_size(Vec2::new(175.0, 36.0));
 
                 if ui.add(explorer_btn).clicked() {
                     paste_explorer_requested = true;
@@ -547,7 +558,7 @@ pub fn render_paste_prompt_modal(
                             .color(Color32::WHITE),
                     )
                     .fill(Color32::from_rgb(37, 99, 235))
-                    .min_size(Vec2::new(200.0, 36.0));
+                    .min_size(Vec2::new(190.0, 36.0));
 
                     if ui.add(copyfile_btn).clicked() {
                         paste_copyfile_requested = true;
@@ -580,6 +591,7 @@ pub fn render_about_modal(
 
     let mut trigger_update_requested = false;
     let mut check_update_requested = false;
+    let modal_width = (ctx.screen_rect().width() - 48.0).clamp(440.0, 520.0);
 
     egui::Window::new("ℹ Sobre o CopyFile")
         .collapsible(false)
@@ -590,35 +602,44 @@ pub fn render_about_modal(
                 .fill(Color32::from_rgb(15, 23, 42))
                 .stroke(Stroke::new(1.5_f32, Color32::from_rgb(51, 65, 85)))
                 .corner_radius(CornerRadius::same(12))
-                .inner_margin(egui::Margin::same(20)),
+                .inner_margin(egui::Margin::same(18)),
         )
         .show(ctx, |ui| {
-            ui.set_width(500.0);
+            ui.set_width(modal_width);
 
             // Cabeçalho / Logo
             ui.vertical_centered(|ui| {
-                ui.label(RichText::new("⚡ CopyFile").strong().size(26.0).color(COLOR_ACCENT));
+                ui.label(
+                    RichText::new("⚡ CopyFile")
+                        .strong()
+                        .size(24.0)
+                        .color(COLOR_ACCENT),
+                );
                 ui.add_space(2.0);
                 ui.label(
                     RichText::new(format!("Versão instalada: v{}", env!("CARGO_PKG_VERSION")))
-                        .size(14.0)
+                        .size(13.5)
                         .color(COLOR_MUTED)
                         .monospace(),
                 );
                 ui.add_space(4.0);
                 ui.label(
-                    RichText::new("Ferramenta profissional para backup e cópia ultrarrápida de arquivos com verificação criptográfica xxHash3 e preservação integral de metadados.")
-                        .size(13.0)
+                    RichText::new("Ferramenta profissional para backup e cópia ultrarrápida com pipeline duplo-buffer, xxHash3 SIMD e preservação integral de metadados.")
+                        .size(12.5)
                         .color(Color32::from_rgb(203, 213, 225)),
                 );
             });
 
-            ui.add_space(12.0);
+            ui.add_space(10.0);
             ui.separator();
             ui.add_space(8.0);
 
             // --- Seção de Auto-Atualização ---
-            ui.label(RichText::new("🔄 Atualização do Sistema").strong().size(15.0));
+            ui.label(
+                RichText::new("🔄 Atualização Automática (Hot-Swap)")
+                    .strong()
+                    .size(14.5),
+            );
             ui.add_space(4.0);
 
             egui::Frame::NONE
@@ -627,7 +648,7 @@ pub fn render_about_modal(
                 .corner_radius(CornerRadius::same(8))
                 .inner_margin(egui::Margin::same(12))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new("Versão no GitHub:").size(13.5));
                         if let Some(info) = available_update {
                             ui.label(
@@ -653,30 +674,36 @@ pub fn render_about_modal(
                     if let Some(info) = available_update {
                         if !info.release_notes.is_empty() {
                             ui.add_space(4.0);
-                            ui.label(
-                                RichText::new(&info.release_notes)
-                                    .small()
-                                    .italics()
-                                    .color(Color32::from_rgb(148, 163, 184)),
-                            );
+                            egui::ScrollArea::vertical()
+                                .id_salt("about_release_notes")
+                                .max_height(72.0)
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        RichText::new(&info.release_notes)
+                                            .small()
+                                            .italics()
+                                            .color(Color32::from_rgb(148, 163, 184)),
+                                    );
+                                });
                         }
                     }
 
                     ui.add_space(8.0);
                     match update_status {
                         crate::core::UpdateStatus::Idle => {
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 if let Some(info) = available_update {
                                     let btn_update = egui::Button::new(
                                         RichText::new(format!(
-                                            "⬇ Baixar e Atualizar para v{}",
+                                            "⬇ Baixar e Atualizar v{}",
                                             info.version
                                         ))
                                         .strong()
+                                        .size(13.0)
                                         .color(Color32::WHITE),
                                     )
                                     .fill(Color32::from_rgb(0, 140, 60))
-                                    .min_size(Vec2::new(200.0, 32.0));
+                                    .min_size(Vec2::new(190.0, 32.0));
 
                                     if ui.add(btn_update).clicked() {
                                         trigger_update_requested = true;
@@ -693,10 +720,20 @@ pub fn render_about_modal(
                                 }
                             });
                         }
+                        crate::core::UpdateStatus::Checking => {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(
+                                    RichText::new("Consultando GitHub Releases...")
+                                        .size(13.0)
+                                        .color(COLOR_ACCENT),
+                                );
+                            });
+                        }
                         crate::core::UpdateStatus::Downloading(prog) => {
                             ui.label(
                                 RichText::new(format!(
-                                    "Baixando nova versão... ({:.0}%)",
+                                    "Baixando e validando executável... ({:.0}%)",
                                     prog * 100.0
                                 ))
                                 .size(13.5),
@@ -714,17 +751,26 @@ pub fn render_about_modal(
                         }
                         crate::core::UpdateStatus::Error(err) => {
                             ui.label(
-                                RichText::new(format!("Erro ao atualizar: {err}"))
+                                RichText::new(format!("Erro: {err}"))
                                     .color(COLOR_ERROR)
-                                    .size(13.0),
+                                    .size(12.5),
                             );
-                            ui.add_space(4.0);
-                            if ui
-                                .button(RichText::new("🔁 Tentar Novamente").size(13.0))
-                                .clicked()
-                            {
-                                trigger_update_requested = true;
-                            }
+                            ui.add_space(6.0);
+                            ui.horizontal_wrapped(|ui| {
+                                if available_update.is_some()
+                                    && ui
+                                        .button(RichText::new("🔁 Tentar Baixar Novamente").size(13.0))
+                                        .clicked()
+                                {
+                                    trigger_update_requested = true;
+                                }
+                                if ui
+                                    .button(RichText::new("🔄 Verificar Novamente").size(13.0))
+                                    .clicked()
+                                {
+                                    check_update_requested = true;
+                                }
+                            });
                         }
                     }
                 });
@@ -734,7 +780,11 @@ pub fn render_about_modal(
             ui.add_space(8.0);
 
             // Informações dos Desenvolvedores
-            ui.label(RichText::new("👨‍💻 Desenvolvedores & Licença").strong().size(15.0));
+            ui.label(
+                RichText::new("👨‍💻 Desenvolvedores & Licença")
+                    .strong()
+                    .size(14.5),
+            );
             ui.add_space(4.0);
             egui::Frame::NONE
                 .fill(Color32::from_rgb(24, 33, 47))
@@ -742,26 +792,39 @@ pub fn render_about_modal(
                 .corner_radius(CornerRadius::same(8))
                 .inner_margin(egui::Margin::same(10))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("👤 Leandro").strong().size(14.0).color(Color32::WHITE));
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            RichText::new("👤 Leandro")
+                                .strong()
+                                .size(13.5)
+                                .color(Color32::WHITE),
+                        );
                         ui.label(RichText::new("+").size(13.0).color(COLOR_MUTED));
-                        ui.label(RichText::new("✨ Gemini (Google DeepMind)").strong().size(14.0).color(COLOR_WARNING));
+                        ui.label(
+                            RichText::new("✨ Gemini (Google DeepMind)")
+                                .strong()
+                                .size(13.5)
+                                .color(COLOR_WARNING),
+                        );
                     });
                     ui.add_space(2.0);
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new("Licença:").small().color(COLOR_MUTED));
-                        ui.label(RichText::new("MIT License (Código Aberto)").small().color(COLOR_SUCCESS));
+                        ui.label(RichText::new("MIT").small().color(COLOR_SUCCESS));
                         ui.label(RichText::new("•").small().color(COLOR_MUTED));
                         ui.label(RichText::new("GitHub:").small().color(COLOR_MUTED));
-                        ui.hyperlink_to("leandrop2103/copyfile", "https://github.com/leandrop2103/copyfile");
+                        ui.hyperlink_to(
+                            "leandrop2103/copyfile",
+                            "https://github.com/leandrop2103/copyfile",
+                        );
                     });
                 });
 
-            ui.add_space(14.0);
+            ui.add_space(12.0);
             ui.vertical_centered(|ui| {
                 let close_btn = egui::Button::new(
                     RichText::new("✖ Fechar")
-                        .size(14.0)
+                        .size(13.5)
                         .strong()
                         .color(Color32::WHITE),
                 )

@@ -8,9 +8,62 @@ use crate::core::profiles::{
 use crate::core::types::{CopyConfig, OverwritePolicy};
 use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
 use eframe::egui::{self, Color32, CornerRadius, ProgressBar, RichText, Stroke, Ui, Vec2};
-use std::path::PathBuf;
-use std::time::Duration;
-use std::time::Instant;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+type UserListCache = Option<(Vec<(String, PathBuf)>, Instant)>;
+
+/// Truncates a string to at most `max_chars` characters, appending `…` if truncated.
+fn truncate_label(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if count <= max_chars {
+        s.to_string()
+    } else if max_chars <= 1 {
+        "…".to_string()
+    } else {
+        let prefix: String = s.chars().take(max_chars - 1).collect();
+        format!("{prefix}…")
+    }
+}
+
+/// Cached `is_dir` check so we never call `fs::metadata` 60 times/sec on network or slow drives.
+fn cached_is_dir(path: &Path) -> bool {
+    thread_local! {
+        static DIR_CACHE: std::cell::RefCell<(HashMap<PathBuf, bool>, Instant)> =
+            std::cell::RefCell::new((HashMap::new(), Instant::now()));
+    }
+    DIR_CACHE.with(|c| {
+        let mut cache = c.borrow_mut();
+        if cache.1.elapsed().as_secs() >= 15 || cache.0.len() > 512 {
+            cache.0.clear();
+            cache.1 = Instant::now();
+        }
+        *cache
+            .0
+            .entry(path.to_path_buf())
+            .or_insert_with(|| path.is_dir())
+    })
+}
+
+/// Cached list of Windows user profiles (refreshed every 30s instead of every frame!).
+fn cached_windows_users() -> Vec<(String, PathBuf)> {
+    thread_local! {
+        static USERS_CACHE: std::cell::RefCell<UserListCache> =
+            const { std::cell::RefCell::new(None) };
+    }
+    USERS_CACHE.with(|c| {
+        let mut cache = c.borrow_mut();
+        let needs_refresh = match cache.as_ref() {
+            None => true,
+            Some((_, ts)) => ts.elapsed().as_secs() >= 30,
+        };
+        if needs_refresh {
+            *cache = Some((list_all_windows_users(), Instant::now()));
+        }
+        cache.as_ref().map(|(v, _)| v.clone()).unwrap_or_default()
+    })
+}
 
 /// Renders the top header section of CopyFile.
 #[allow(clippy::too_many_arguments)]
@@ -43,141 +96,179 @@ pub fn render_header(
 
     egui::Frame::NONE
         .fill(Color32::from_rgb(24, 33, 47))
-        .inner_margin(14.0)
+        .inner_margin(12.0)
         .show(ui, |ui| {
-            // --- Row 1: Source Header & Action Buttons ---
+            let avail_w = ui.available_width();
+            let compact = avail_w < 920.0;
+
+            // --- Row 1: Source Header & Action Buttons (Zero-collision responsive layout) ---
+            let render_source_actions = |ui: &mut Ui,
+                                         sources: &mut Vec<PathBuf>,
+                                         on_clear: &mut Option<Box<dyn FnOnce()>>| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                if !sources.is_empty() {
+                    let clear_btn = egui::Button::new(RichText::new("🗑 Limpar").size(13.0))
+                        .min_size(Vec2::new(72.0, 30.0));
+                    if ui.add(clear_btn).clicked() {
+                        if let Some(cb) = on_clear.take() {
+                            cb();
+                        }
+                    }
+                }
+
+                let add_files_btn = egui::Button::new(
+                    RichText::new("📄 + Arquivos").strong().size(13.0),
+                )
+                .min_size(Vec2::new(104.0, 30.0));
+                if ui.add(add_files_btn).clicked() {
+                    if let Some(files) = rfd::FileDialog::new().pick_files() {
+                        for f in files {
+                            if !sources.contains(&f) {
+                                sources.push(f);
+                            }
+                        }
+                    }
+                }
+
+                let add_folders_btn = egui::Button::new(
+                    RichText::new("📁 + Pastas")
+                        .strong()
+                        .size(13.0)
+                        .color(Color32::WHITE),
+                )
+                .fill(Color32::from_rgb(37, 99, 235))
+                .min_size(Vec2::new(96.0, 30.0));
+                if ui.add(add_folders_btn).clicked() {
+                    if let Some(folders) = rfd::FileDialog::new().pick_folders() {
+                        for folder in folders {
+                            if !sources.contains(&folder) {
+                                sources.push(folder);
+                            }
+                        }
+                    }
+                }
+
+                // One-Click User Profile Quick Preset Button
+                let quick_btn = egui::Button::new(
+                    RichText::new("⚡ Backup Usuário")
+                        .strong()
+                        .size(13.0)
+                        .color(Color32::WHITE),
+                )
+                .fill(Color32::from_rgb(124, 58, 237))
+                .min_size(Vec2::new(138.0, 30.0));
+                if ui
+                    .add(quick_btn)
+                    .on_hover_text(
+                        "Adiciona automaticamente Área de Trabalho, Documentos, Downloads, Imagens, Vídeos e Chrome do usuário atual",
+                    )
+                    .clicked()
+                {
+                    for preset in get_current_user_presets() {
+                        if preset.exists && !sources.contains(&preset.path) {
+                            sources.push(preset.path);
+                        }
+                    }
+                }
+
+                // Cached list of Windows users
+                let other_users = cached_windows_users();
+                if other_users.len() > 1 {
+                    ui.menu_button(RichText::new("👤 Usuários ▾").size(13.0), |ui| {
+                        for (name, user_path) in &other_users {
+                            if ui.button(format!("👤 Carregar {name}")).clicked() {
+                                for preset in get_presets_for_user_path(user_path) {
+                                    if !sources.contains(&preset.path) {
+                                        sources.push(preset.path);
+                                    }
+                                }
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                }
+            };
+
+            let mut clear_cb: Option<Box<dyn FnOnce()>> = Some(Box::new(on_clear));
+
             ui.horizontal(|ui| {
-                ui.label(RichText::new("📁 Origens Selecionadas:").strong().size(16.0));
+                ui.label(RichText::new("📁 Origens:").strong().size(15.5));
                 if !sources.is_empty() {
                     let manage_btn = ui.add(
                         egui::Button::new(
                             RichText::new(format!("📋 Gerenciar ({})", sources.len()))
-                                .size(13.5)
+                                .size(13.0)
                                 .color(COLOR_ACCENT)
                                 .strong(),
                         )
                         .frame(false),
                     );
-                    if manage_btn.on_hover_text("Clique para abrir o Gerenciador de Pastas e Arquivos de Origem").clicked() {
+                    if manage_btn
+                        .on_hover_text(
+                            "Clique para abrir o Gerenciador de Pastas e Arquivos de Origem",
+                        )
+                        .clicked()
+                    {
                         open_sources_manager_requested = true;
                     }
                 }
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if !is_running {
-                        if !sources.is_empty() {
-                            let clear_btn = egui::Button::new(RichText::new("🗑 Limpar").size(14.0))
-                                .min_size(Vec2::new(80.0, 32.0));
-                            if ui.add(clear_btn).clicked() {
-                                on_clear();
-                            }
-                        }
-
-                        let add_files_btn = egui::Button::new(
-                            RichText::new("📄 + Arquivos")
-                                .strong()
-                                .size(14.0),
-                        )
-                        .min_size(Vec2::new(120.0, 32.0));
-                        if ui.add(add_files_btn).clicked() {
-                            if let Some(files) = rfd::FileDialog::new().pick_files() {
-                                for f in files {
-                                    if !sources.contains(&f) {
-                                        sources.push(f);
-                                    }
-                                }
-                            }
-                        }
-
-                        let add_folders_btn = egui::Button::new(
-                            RichText::new("📁 + Pastas")
-                                .strong()
-                                .size(14.0),
-                        )
-                        .fill(Color32::from_rgb(37, 99, 235))
-                        .min_size(Vec2::new(110.0, 32.0));
-                        if ui.add(add_folders_btn).clicked() {
-                            if let Some(folders) = rfd::FileDialog::new().pick_folders() {
-                                for folder in folders {
-                                    if !sources.contains(&folder) {
-                                        sources.push(folder);
-                                    }
-                                }
-                            }
-                        }
-
-                        // One-Click User Profile Quick Preset Button
-                        let quick_btn = egui::Button::new(
-                            RichText::new("⚡ Backup do Usuário")
-                                .strong()
-                                .size(14.0)
-                                .color(Color32::WHITE),
-                        )
-                        .fill(Color32::from_rgb(124, 58, 237)) // Purple preset
-                        .min_size(Vec2::new(170.0, 32.0));
-                        if ui.add(quick_btn).on_hover_text("Adiciona automaticamente Área de Trabalho, Documentos, Downloads, Imagens, Vídeos e Chrome do usuário atual").clicked() {
-                            for preset in get_current_user_presets() {
-                                if preset.exists && !sources.contains(&preset.path) {
-                                    sources.push(preset.path);
-                                }
-                            }
-                        }
-
-                        // Check if other Windows users exist on disk
-                        let other_users = list_all_windows_users();
-                        if other_users.len() > 1 {
-                            ui.menu_button(RichText::new("👤 Outro Usuário ▾").size(14.0), |ui| {
-                                for (name, user_path) in &other_users {
-                                    if ui.button(format!("👤 Carregar {}", name)).clicked() {
-                                        for preset in get_presets_for_user_path(user_path) {
-                                            if !sources.contains(&preset.path) {
-                                                sources.push(preset.path);
-                                            }
-                                        }
-                                        ui.close_menu();
-                                    }
-                                }
-                            });
-                        }
-                    }
-                });
+                if !is_running && !compact {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        render_source_actions(ui, sources, &mut clear_cb);
+                    });
+                }
             });
 
-            // --- Row 1.5: List of Selected Source Badges ---
+            // On narrow windows (< 920px), wrap action buttons cleanly onto a dedicated row so nothing overlaps!
+            if !is_running && compact {
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    render_source_actions(ui, sources, &mut clear_cb);
+                });
+            }
+
+            // --- Row 1.5: List of Selected Source Badges (Truncated & Wrapped, Zero Overflow) ---
             if sources.is_empty() {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(
-                        RichText::new("Nenhuma pasta adicionada. Clique em '⚡ Backup do Usuário', '+ Pastas' ou arraste itens para cá.")
-                            .italics()
-                            .size(13.5)
-                            .color(Color32::from_rgb(148, 163, 184)),
+                        RichText::new(
+                            "Nenhuma pasta adicionada. Clique em '⚡ Backup Usuário', '+ Pastas' ou arraste itens para cá.",
+                        )
+                        .italics()
+                        .size(13.0)
+                        .color(Color32::from_rgb(148, 163, 184)),
                     );
                 });
             } else {
-                ui.add_space(2.0);
+                ui.add_space(3.0);
                 let mut remove_idx = None;
 
-                ui.horizontal(|ui| {
-                    // Show at most the first 3 items as badges
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
+
+                    // Show at most the first 3 items as compact truncated badges
                     for (idx, src) in sources.iter().enumerate().take(3) {
-                        let is_dir = src.is_dir();
+                        let is_dir = cached_is_dir(src);
                         let icon = if is_dir { "📁" } else { "📄" };
                         let full_path = src.to_string_lossy().to_string();
-                        let short_name = src
+                        let raw_name = src
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or(&full_path);
+                        let short_name = truncate_label(raw_name, 22);
 
                         egui::Frame::NONE
                             .fill(Color32::from_rgb(30, 41, 59))
                             .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
                             .corner_radius(CornerRadius::same(5))
-                            .inner_margin(egui::Margin::symmetric(8, 4))
+                            .inner_margin(egui::Margin::symmetric(8, 3))
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
                                     ui.label(
                                         RichText::new(format!("{icon} {short_name}"))
-                                            .size(13.0)
+                                            .size(12.5)
                                             .strong()
                                             .color(Color32::from_rgb(226, 232, 240)),
                                     )
@@ -193,7 +284,7 @@ pub fn render_header(
                                             )
                                             .frame(false),
                                         );
-                                        if remove_btn.clicked() {
+                                        if remove_btn.on_hover_text("Remover origem").clicked() {
                                             remove_idx = Some(idx);
                                         }
                                     }
@@ -208,11 +299,12 @@ pub fn render_header(
 
                         ui.menu_button(
                             RichText::new(menu_label)
-                                .size(13.0)
+                                .size(12.5)
                                 .strong()
                                 .color(Color32::WHITE),
                             |ui| {
-                                ui.set_min_width(320.0);
+                                ui.set_min_width(340.0);
+                                ui.set_max_width(480.0);
                                 ui.label(
                                     RichText::new(format!("Itens adicionais ({remaining_count}):"))
                                         .size(12.5)
@@ -220,38 +312,57 @@ pub fn render_header(
                                 );
                                 ui.separator();
 
-                                for (idx, src) in sources.iter().enumerate().skip(3) {
-                                    let is_dir = src.is_dir();
-                                    let icon = if is_dir { "📁" } else { "📄" };
-                                    let path_str = src.to_string_lossy().to_string();
+                                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                                    for (idx, src) in sources.iter().enumerate().skip(3) {
+                                        let is_dir = cached_is_dir(src);
+                                        let icon = if is_dir { "📁" } else { "📄" };
+                                        let path_str = src.to_string_lossy().to_string();
 
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new(format!("{icon} {path_str}"))
-                                                .size(13.0)
-                                                .color(Color32::from_rgb(226, 232, 240)),
-                                        );
-
-                                        if !is_running {
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::Center),
-                                                |ui| {
-                                                    if ui
-                                                        .button(
-                                                            RichText::new("✖")
-                                                                .color(COLOR_ERROR)
-                                                                .size(11.0),
+                                        ui.horizontal(|ui| {
+                                            if !is_running {
+                                                ui.with_layout(
+                                                    egui::Layout::right_to_left(egui::Align::Center),
+                                                    |ui| {
+                                                        if ui
+                                                            .button(
+                                                                RichText::new("✖")
+                                                                    .color(COLOR_ERROR)
+                                                                    .size(11.0),
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            remove_idx = Some(idx);
+                                                            ui.close_menu();
+                                                        }
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                RichText::new(format!(
+                                                                    "{icon} {path_str}"
+                                                                ))
+                                                                .size(12.5)
+                                                                .color(Color32::from_rgb(
+                                                                    226, 232, 240,
+                                                                )),
+                                                            )
+                                                            .truncate(),
                                                         )
-                                                        .clicked()
-                                                    {
-                                                        remove_idx = Some(idx);
-                                                        ui.close_menu();
-                                                    }
-                                                },
-                                            );
-                                        }
-                                    });
-                                }
+                                                        .on_hover_text(&path_str);
+                                                    },
+                                                );
+                                            } else {
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        RichText::new(format!("{icon} {path_str}"))
+                                                            .size(12.5)
+                                                            .color(Color32::from_rgb(226, 232, 240)),
+                                                    )
+                                                    .truncate(),
+                                                )
+                                                .on_hover_text(&path_str);
+                                            }
+                                        });
+                                    }
+                                });
 
                                 ui.add_space(6.0);
                                 ui.separator();
@@ -279,7 +390,7 @@ pub fn render_header(
 
             ui.add_space(6.0);
 
-            // --- Row 2: Destination Header, Space Checking & Picker ---
+            // --- Row 2: Destination Header, Space Checking & Picker (Never overflows!) ---
             let mut disk_space_info = None;
             if let Some(d) = destination.as_ref() {
                 type DiskCache = (Option<(u64, u64)>, Option<std::path::PathBuf>, Instant);
@@ -300,17 +411,17 @@ pub fn render_header(
             }
 
             ui.horizontal(|ui| {
-                ui.label(RichText::new("🎯 Destino:").strong().size(16.0));
+                ui.label(RichText::new("🎯 Destino:").strong().size(15.5));
 
                 if !is_running {
                     let pick_dst_btn = egui::Button::new(
                         RichText::new("📂 Escolher Destino")
                             .strong()
-                            .size(14.0)
+                            .size(13.0)
                             .color(Color32::WHITE),
                     )
                     .fill(Color32::from_rgb(16, 185, 129))
-                    .min_size(Vec2::new(150.0, 32.0));
+                    .min_size(Vec2::new(140.0, 30.0));
                     if ui.add(pick_dst_btn).clicked() {
                         if let Some(folder) = rfd::FileDialog::new().pick_folder() {
                             *destination = Some(folder);
@@ -320,16 +431,14 @@ pub fn render_header(
 
                 if let Some(dst) = destination.as_ref() {
                     let display_dst = dst.to_string_lossy().to_string();
-                    let space_str = disk_space_info.map_or_else(
-                        String::new,
-                        |(avail, total)| {
-                            format!(
-                                "  (Livre: {} de {})",
-                                format_bytes(avail),
-                                format_bytes(total)
-                            )
-                        },
-                    );
+                    let space_str = disk_space_info.map_or_else(String::new, |(avail, total)| {
+                        format!(
+                            "Livre: {} / {}",
+                            format_bytes(avail),
+                            format_bytes(total)
+                        )
+                    });
+                    let mut clear_dest = false;
 
                     egui::Frame::NONE
                         .fill(Color32::from_rgb(20, 50, 40))
@@ -337,13 +446,8 @@ pub fn render_header(
                         .corner_radius(CornerRadius::same(5))
                         .inner_margin(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(format!("📂 {display_dst}{space_str}"))
-                                        .strong()
-                                        .size(13.5)
-                                        .color(Color32::from_rgb(52, 211, 153)),
-                                );
+                            // Draw right-aligned controls FIRST so long paths truncate safely without ever pushing '✖' off-screen!
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 if !is_running
                                     && ui
                                         .add(
@@ -355,18 +459,50 @@ pub fn render_header(
                                             )
                                             .frame(false),
                                         )
+                                        .on_hover_text("Limpar destino")
                                         .clicked()
                                 {
-                                    *destination = None;
+                                    clear_dest = true;
                                 }
+
+                                if !space_str.is_empty() {
+                                    ui.label(
+                                        RichText::new(format!("({space_str})"))
+                                            .size(12.5)
+                                            .color(Color32::from_rgb(167, 243, 208)),
+                                    );
+                                }
+
+                                ui.with_layout(
+                                    egui::Layout::left_to_right(egui::Align::Center),
+                                    |ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new(format!("📂 {display_dst}"))
+                                                    .strong()
+                                                    .size(13.0)
+                                                    .color(Color32::from_rgb(52, 211, 153)),
+                                            )
+                                            .truncate(),
+                                        )
+                                        .on_hover_text(&display_dst);
+                                    },
+                                );
                             });
                         });
+
+                    if clear_dest {
+                        *destination = None;
+                    }
                 } else {
-                    ui.label(
-                        RichText::new("Selecione a pasta de destino para o backup...")
-                            .italics()
-                            .size(14.0)
-                            .color(Color32::from_rgb(148, 163, 184)),
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new("Selecione a pasta de destino para o backup...")
+                                .italics()
+                                .size(13.5)
+                                .color(Color32::from_rgb(148, 163, 184)),
+                        )
+                        .truncate(),
                     );
                 }
             });
@@ -381,48 +517,58 @@ pub fn render_header(
                         .corner_radius(CornerRadius::same(4))
                         .inner_margin(egui::Margin::symmetric(10, 4))
                         .show(ui, |ui| {
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 ui.label(
                                     RichText::new(format!(
-                                        "⚠ ATENÇÃO: Espaço insuficiente na unidade de destino! Necessário: {} | Disponível: {}",
+                                        "⚠ ATENÇÃO: Espaço insuficiente no destino! Necessário: {} | Disponível: {}",
                                         format_bytes(total_bytes),
                                         format_bytes(avail)
                                     ))
                                     .color(COLOR_ERROR)
                                     .strong()
-                                    .size(13.5),
+                                    .size(13.0),
                                 );
                             });
                         });
                 }
             }
 
-            ui.add_space(6.0);
+            ui.add_space(5.0);
             ui.separator();
-            ui.add_space(6.0);
+            ui.add_space(5.0);
 
-            // --- Row 3: Action Controls Bar ---
+            // --- Row 3: Action Controls Bar (Compact labels + bounded ComboBoxes = Zero overlap at 800px!) ---
             ui.horizontal(|ui| {
                 // 1. Botão Principal de Transferência
                 if !is_running {
                     let can_start = !sources.is_empty() && destination.is_some();
                     let (start_label, start_color) = match config.transfer_mode {
-                        crate::core::types::TransferMode::Copy => ("▶ INICIAR CÓPIA", COLOR_SUCCESS),
-                        crate::core::types::TransferMode::Move => ("▶ MOVER (RECORTAR)", Color32::from_rgb(217, 119, 6)),
-                        crate::core::types::TransferMode::Sync => ("▶ SINCRONIZAR (ESPELHO)", Color32::from_rgb(14, 165, 233)),
+                        crate::core::types::TransferMode::Copy => {
+                            ("▶ INICIAR CÓPIA", COLOR_SUCCESS)
+                        }
+                        crate::core::types::TransferMode::Move => {
+                            ("▶ MOVER ARQUIVOS", Color32::from_rgb(217, 119, 6))
+                        }
+                        crate::core::types::TransferMode::Sync => {
+                            ("▶ SINCRONIZAR", Color32::from_rgb(14, 165, 233))
+                        }
                     };
                     let start_btn = egui::Button::new(
                         RichText::new(start_label)
                             .strong()
-                            .size(15.0)
-                            .color(if can_start { Color32::WHITE } else { COLOR_MUTED }),
+                            .size(14.5)
+                            .color(if can_start {
+                                Color32::WHITE
+                            } else {
+                                COLOR_MUTED
+                            }),
                     )
                     .fill(if can_start {
                         start_color
                     } else {
                         Color32::from_rgb(45, 55, 72)
                     })
-                    .min_size(Vec2::new(175.0, 36.0));
+                    .min_size(Vec2::new(165.0, 34.0));
 
                     if ui.add_enabled(can_start, start_btn).clicked() {
                         on_start();
@@ -434,51 +580,62 @@ pub fn render_header(
                         "⏸ PAUSAR"
                     };
                     let pause_btn = egui::Button::new(
-                        RichText::new(pause_label).strong().size(14.0),
+                        RichText::new(pause_label)
+                            .strong()
+                            .size(13.5)
+                            .color(Color32::WHITE),
                     )
                     .fill(Color32::from_rgb(202, 138, 4))
-                    .min_size(Vec2::new(125.0, 36.0));
+                    .min_size(Vec2::new(118.0, 34.0));
                     if ui.add(pause_btn).clicked() {
                         on_toggle_pause();
                     }
 
-                    ui.add_space(6.0);
+                    ui.add_space(4.0);
 
                     let cancel_btn = egui::Button::new(
                         RichText::new("⏹ CANCELAR")
                             .strong()
-                            .size(14.0)
+                            .size(13.5)
                             .color(Color32::WHITE),
                     )
                     .fill(Color32::from_rgb(185, 28, 28))
-                    .min_size(Vec2::new(125.0, 36.0));
+                    .min_size(Vec2::new(118.0, 34.0));
                     if ui.add(cancel_btn).clicked() {
                         on_cancel();
                     }
                 }
 
-                ui.add_space(10.0);
+                ui.add_space(6.0);
 
-                // 2. Seletor de Modo de Transferência (sempre visível, desabilitado durante execução)
+                // 2. Seletor de Modo de Transferência com largura controlada
                 ui.add_enabled_ui(!is_running, |ui| {
                     egui::ComboBox::from_id_salt("header_mode_combo")
-                        .selected_text(RichText::new(config.transfer_mode.label()).size(13.5).strong())
+                        .width(190.0)
+                        .selected_text(
+                            RichText::new(config.transfer_mode.label())
+                                .size(13.0)
+                                .strong(),
+                        )
                         .show_ui(ui, |ui| {
                             for mode in crate::core::types::TransferMode::all() {
                                 ui.selectable_value(
                                     &mut config.transfer_mode,
                                     mode,
-                                    RichText::new(mode.label()).size(13.5),
+                                    RichText::new(mode.label()).size(13.0),
                                 );
                             }
                         });
                 });
 
-                // 3. Regra de Sobrescrita alinhada à direita
+                // 3. Regra de Sobrescrita alinhada à direita com short_label para nunca colidir
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(!is_running, |ui| {
                         egui::ComboBox::from_id_salt("header_overwrite_combo")
-                            .selected_text(RichText::new(config.overwrite_policy.label()).size(13.0))
+                            .width(175.0)
+                            .selected_text(
+                                RichText::new(config.overwrite_policy.short_label()).size(13.0),
+                            )
                             .show_ui(ui, |ui| {
                                 for policy in OverwritePolicy::all() {
                                     ui.selectable_value(
@@ -488,42 +645,46 @@ pub fn render_header(
                                     );
                                 }
                             });
-                        ui.label(RichText::new("Regra:").size(13.5).strong().color(Color32::from_rgb(203, 213, 225)));
+                        ui.label(
+                            RichText::new("Regra:")
+                                .size(13.0)
+                                .strong()
+                                .color(Color32::from_rgb(203, 213, 225)),
+                        );
                     });
                 });
             });
 
-            ui.add_space(6.0);
+            ui.add_space(5.0);
 
-            // --- Row 3.5: Opções Rápidas de Transferência (Checkboxes alinhados) ---
+            // --- Row 3.5: Opções Rápidas de Transferência (Checkboxes alinhados e responsivos) ---
             ui.add_enabled_ui(!is_running, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new("Opções:").size(13.0).color(COLOR_MUTED));
                     ui.add_space(4.0);
 
                     ui.checkbox(
                         &mut config.verify_checksum,
-                        RichText::new("Verificar xxHash3").size(13.5),
+                        RichText::new("Verificar xxHash3").size(13.0),
                     );
-                    ui.add_space(12.0);
+                    ui.add_space(10.0);
 
                     ui.checkbox(
                         &mut config.ignore_errors,
-                        RichText::new("Ignorar erros").size(13.5),
+                        RichText::new("Ignorar erros").size(13.0),
                     );
-                    ui.add_space(12.0);
+                    ui.add_space(10.0);
 
                     ui.checkbox(
                         &mut config.preserve_metadata,
-                        RichText::new("Preservar metadados").size(13.5),
+                        RichText::new("Preservar metadados").size(13.0),
                     );
                 });
             });
 
-            ui.add_space(8.0);
+            ui.add_space(6.0);
 
-            // --- Row 4: Dual Progress Bars ---
-            // Progress Bar 1: Current Active File
+            // --- Row 4: Dual Progress Bars (Safe right-first layout -> Zero text collision!) ---
             let (file_progress, file_label_str, file_pct_str) = if is_running {
                 let p = if current_file_total > 0 {
                     (current_file_copied as f32 / current_file_total as f32).clamp(0.0, 1.0)
@@ -538,26 +699,28 @@ pub fn render_header(
                     p * 100.0
                 );
                 (p, name, pct)
-            } else if total_files > 0 && (copied_files + skipped_files + error_files == total_files) {
+            } else if total_files > 0 && (copied_files + skipped_files + error_files == total_files)
+            {
                 (1.0, "Transferência Concluída!", "100.0%".to_string())
             } else {
                 (0.0, "Aguardando início...", "-".to_string())
             };
 
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Arquivo:").size(14.0));
-                ui.label(
-                    RichText::new(file_label_str)
-                        .size(14.0)
-                        .strong()
-                        .color(Color32::from_rgb(226, 232, 240)),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        RichText::new(file_pct_str)
-                            .size(14.0)
-                            .monospace(),
-                    );
+            // Render right-aligned percentage FIRST, then truncated filename on the left
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(RichText::new(&file_pct_str).size(13.5).monospace());
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.label(RichText::new("Arquivo:").size(13.5));
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(file_label_str)
+                                .size(13.5)
+                                .strong()
+                                .color(Color32::from_rgb(226, 232, 240)),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(file_label_str);
                 });
             });
             ui.add(
@@ -570,7 +733,8 @@ pub fn render_header(
 
             // Progress Bar 2: Total Transfer
             let processed_files_count = copied_files + skipped_files + error_files;
-            let is_finished = total_files > 0 && processed_files_count == total_files && !is_running;
+            let is_finished =
+                total_files > 0 && processed_files_count == total_files && !is_running;
 
             let total_progress = if is_finished {
                 1.0
@@ -584,45 +748,53 @@ pub fn render_header(
 
             let speed_str = format!("{}/s", format_bytes(current_speed_bps as u64));
             let eta_str = eta.map_or_else(|| "calculando...".to_string(), format_duration);
-            let total_display_bytes = if is_finished { total_bytes } else { processed_bytes };
+            let total_display_bytes = if is_finished {
+                total_bytes
+            } else {
+                processed_bytes.min(total_bytes)
+            };
 
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Total:").size(14.0).strong());
-                ui.label(
-                    RichText::new(format!(
-                        "{} de {} ({:.1}%)  •  {}/{} itens",
-                        format_bytes(total_display_bytes),
-                        format_bytes(total_bytes),
-                        total_progress * 100.0,
-                        processed_files_count,
-                        total_files,
-                    ))
-                    .size(14.0)
-                    .strong(),
-                );
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if is_running {
-                        ui.label(
-                            RichText::new(format!("⏳ Restante: {eta_str}  |  ⚡ {speed_str}"))
-                                .size(14.0)
-                                .color(COLOR_WARNING)
-                                .strong(),
-                        );
-                    } else if is_finished {
-                        ui.label(
-                            RichText::new(format!(
-                                "✔ Concluído em {} ({} copiados, {} ignorados, {} erros)",
-                                format_duration(elapsed),
-                                copied_files,
-                                skipped_files,
-                                error_files
-                            ))
-                            .size(14.0)
-                            .color(COLOR_SUCCESS)
+            // Render right-aligned speed/ETA FIRST, then truncated total summary on the left
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if is_running {
+                    ui.label(
+                        RichText::new(format!("⏳ {eta_str}  |  ⚡ {speed_str}"))
+                            .size(13.5)
+                            .color(COLOR_WARNING)
                             .strong(),
-                        );
-                    }
+                    );
+                } else if is_finished {
+                    ui.label(
+                        RichText::new(format!(
+                            "✔ {} ({} ok, {} pul., {} err.)",
+                            format_duration(elapsed),
+                            copied_files,
+                            skipped_files,
+                            error_files
+                        ))
+                        .size(13.5)
+                        .color(COLOR_SUCCESS)
+                        .strong(),
+                    );
+                }
+
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.label(RichText::new("Total:").size(13.5).strong());
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(format!(
+                                "{} / {} ({:.1}%)  •  {}/{} itens",
+                                format_bytes(total_display_bytes),
+                                format_bytes(total_bytes),
+                                total_progress * 100.0,
+                                processed_files_count,
+                                total_files,
+                            ))
+                            .size(13.5)
+                            .strong(),
+                        )
+                        .truncate(),
+                    );
                 });
             });
             ui.add(
