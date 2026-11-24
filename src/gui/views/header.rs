@@ -446,46 +446,51 @@ pub fn render_header(
                         .corner_radius(CornerRadius::same(5))
                         .inner_margin(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
-                            // Draw right-aligned controls FIRST so long paths truncate safely without ever pushing '✖' off-screen!
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if !is_running
-                                    && ui
-                                        .add(
-                                            egui::Button::new(
-                                                RichText::new("✖")
-                                                    .color(COLOR_ERROR)
-                                                    .size(11.0)
-                                                    .strong(),
-                                            )
-                                            .frame(false),
-                                        )
-                                        .on_hover_text("Limpar destino")
-                                        .clicked()
-                                {
-                                    clear_dest = true;
-                                }
-
-                                if !space_str.is_empty() {
-                                    ui.label(
-                                        RichText::new(format!("({space_str})"))
-                                            .size(12.5)
-                                            .color(Color32::from_rgb(167, 243, 208)),
-                                    );
-                                }
-
+                            ui.horizontal(|ui| {
+                                // Draw right-aligned controls FIRST so long paths truncate safely without ever pushing '✖' off-screen!
                                 ui.with_layout(
-                                    egui::Layout::left_to_right(egui::Align::Center),
+                                    egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
-                                        ui.add(
-                                            egui::Label::new(
-                                                RichText::new(format!("📂 {display_dst}"))
-                                                    .strong()
-                                                    .size(13.0)
-                                                    .color(Color32::from_rgb(52, 211, 153)),
-                                            )
-                                            .truncate(),
-                                        )
-                                        .on_hover_text(&display_dst);
+                                        if !is_running
+                                            && ui
+                                                .add(
+                                                    egui::Button::new(
+                                                        RichText::new("✖")
+                                                            .color(COLOR_ERROR)
+                                                            .size(11.0)
+                                                            .strong(),
+                                                    )
+                                                    .frame(false),
+                                                )
+                                                .on_hover_text("Limpar destino")
+                                                .clicked()
+                                        {
+                                            clear_dest = true;
+                                        }
+
+                                        if !space_str.is_empty() {
+                                            ui.label(
+                                                RichText::new(format!("({space_str})"))
+                                                    .size(12.5)
+                                                    .color(Color32::from_rgb(167, 243, 208)),
+                                            );
+                                        }
+
+                                        ui.with_layout(
+                                            egui::Layout::left_to_right(egui::Align::Center),
+                                            |ui| {
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        RichText::new(format!("📂 {display_dst}"))
+                                                            .strong()
+                                                            .size(13.0)
+                                                            .color(Color32::from_rgb(52, 211, 153)),
+                                                    )
+                                                    .truncate(),
+                                                )
+                                                .on_hover_text(&display_dst);
+                                            },
+                                        );
                                     },
                                 );
                             });
@@ -706,21 +711,23 @@ pub fn render_header(
                 (0.0, "Aguardando início...", "-".to_string())
             };
 
-            // Render right-aligned percentage FIRST, then truncated filename on the left
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(&file_pct_str).size(13.5).monospace());
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("Arquivo:").size(13.5));
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(file_label_str)
-                                .size(13.5)
-                                .strong()
-                                .color(Color32::from_rgb(226, 232, 240)),
+            // Render right-aligned percentage FIRST inside a single horizontal row so header never expands vertically!
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(&file_pct_str).size(13.5).monospace());
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.label(RichText::new("Arquivo:").size(13.5));
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(file_label_str)
+                                    .size(13.5)
+                                    .strong()
+                                    .color(Color32::from_rgb(226, 232, 240)),
+                            )
+                            .truncate(),
                         )
-                        .truncate(),
-                    )
-                    .on_hover_text(file_label_str);
+                        .on_hover_text(file_label_str);
+                    });
                 });
             });
             ui.add(
@@ -754,47 +761,49 @@ pub fn render_header(
                 processed_bytes.min(total_bytes)
             };
 
-            // Render right-aligned speed/ETA FIRST, then truncated total summary on the left
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if is_running {
-                    ui.label(
-                        RichText::new(format!("⏳ {eta_str}  |  ⚡ {speed_str}"))
-                            .size(13.5)
-                            .color(COLOR_WARNING)
-                            .strong(),
-                    );
-                } else if is_finished {
-                    ui.label(
-                        RichText::new(format!(
-                            "✔ {} ({} ok, {} pul., {} err.)",
-                            format_duration(elapsed),
-                            copied_files,
-                            skipped_files,
-                            error_files
-                        ))
-                        .size(13.5)
-                        .color(COLOR_SUCCESS)
-                        .strong(),
-                    );
-                }
-
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("Total:").size(13.5).strong());
-                    ui.add(
-                        egui::Label::new(
+            // Render right-aligned speed/ETA FIRST inside a single horizontal row so header never expands vertically!
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if is_running {
+                        ui.label(
+                            RichText::new(format!("⏳ {eta_str}  |  ⚡ {speed_str}"))
+                                .size(13.5)
+                                .color(COLOR_WARNING)
+                                .strong(),
+                        );
+                    } else if is_finished {
+                        ui.label(
                             RichText::new(format!(
-                                "{} / {} ({:.1}%)  •  {}/{} itens",
-                                format_bytes(total_display_bytes),
-                                format_bytes(total_bytes),
-                                total_progress * 100.0,
-                                processed_files_count,
-                                total_files,
+                                "✔ {} ({} ok, {} pul., {} err.)",
+                                format_duration(elapsed),
+                                copied_files,
+                                skipped_files,
+                                error_files
                             ))
                             .size(13.5)
+                            .color(COLOR_SUCCESS)
                             .strong(),
-                        )
-                        .truncate(),
-                    );
+                        );
+                    }
+
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.label(RichText::new("Total:").size(13.5).strong());
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!(
+                                    "{} / {} ({:.1}%)  •  {}/{} itens",
+                                    format_bytes(total_display_bytes),
+                                    format_bytes(total_bytes),
+                                    total_progress * 100.0,
+                                    processed_files_count,
+                                    total_files,
+                                ))
+                                .size(13.5)
+                                .strong(),
+                            )
+                            .truncate(),
+                        );
+                    });
                 });
             });
             ui.add(

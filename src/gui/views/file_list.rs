@@ -212,7 +212,7 @@ pub fn render_file_list(
                 .column(Column::exact(112.0).clip(true)) // xxHash3
                 .column(Column::exact(85.0)) // Tamanho
                 .column(Column::exact(60.0)) // Atributos
-                .column(Column::remainder().at_least(140.0).clip(true)); // Detalhes / Motivo
+                .column(Column::initial(220.0).at_least(120.0).clip(true)); // Detalhes / Motivo
 
             if *auto_scroll {
                 if let Some(active_idx) = active_row_idx {

@@ -226,7 +226,7 @@ pub fn render_completion_modal(
             ui.add_space(12.0);
 
             // Modal Action Buttons (Guaranteed to fit inside 580px even with Retry button!)
-            ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
 
                 if let Some(dst) = destination {
@@ -370,41 +370,45 @@ pub fn render_sources_manager_modal(
                                 .corner_radius(CornerRadius::same(6))
                                 .inner_margin(egui::Margin::symmetric(10, 6))
                                 .show(ui, |ui| {
-                                    // Draw right-aligned Remove button FIRST so long paths truncate safely!
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            if !is_running {
-                                                let rem_btn = egui::Button::new(
-                                                    RichText::new("✖ Remover")
-                                                        .color(COLOR_ERROR)
-                                                        .size(12.5),
-                                                );
-                                                if ui.add(rem_btn).clicked() {
-                                                    remove_idx = Some(idx);
+                                    ui.horizontal(|ui| {
+                                        // Draw right-aligned Remove button FIRST so long paths truncate safely!
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if !is_running {
+                                                    let rem_btn = egui::Button::new(
+                                                        RichText::new("✖ Remover")
+                                                            .color(COLOR_ERROR)
+                                                            .size(12.5),
+                                                    );
+                                                    if ui.add(rem_btn).clicked() {
+                                                        remove_idx = Some(idx);
+                                                    }
                                                 }
-                                            }
 
-                                            ui.with_layout(
-                                                egui::Layout::left_to_right(egui::Align::Center),
-                                                |ui| {
-                                                    ui.label(RichText::new(icon).size(15.0));
-                                                    ui.add(
-                                                        egui::Label::new(
-                                                            RichText::new(path_str.as_ref())
-                                                                .size(13.0)
-                                                                .strong()
-                                                                .color(Color32::from_rgb(
-                                                                    226, 232, 240,
-                                                                )),
+                                                ui.with_layout(
+                                                    egui::Layout::left_to_right(
+                                                        egui::Align::Center,
+                                                    ),
+                                                    |ui| {
+                                                        ui.label(RichText::new(icon).size(15.0));
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                RichText::new(path_str.as_ref())
+                                                                    .size(13.0)
+                                                                    .strong()
+                                                                    .color(Color32::from_rgb(
+                                                                        226, 232, 240,
+                                                                    )),
+                                                            )
+                                                            .truncate(),
                                                         )
-                                                        .truncate(),
-                                                    )
-                                                    .on_hover_text(path_str.as_ref());
-                                                },
-                                            );
-                                        },
-                                    );
+                                                        .on_hover_text(path_str.as_ref());
+                                                    },
+                                                );
+                                            },
+                                        );
+                                    });
                                 });
                             ui.add_space(4.0);
                         }
@@ -419,7 +423,7 @@ pub fn render_sources_manager_modal(
             ui.separator();
             ui.add_space(10.0);
 
-            ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
                 if !is_running {
                     let add_fld = egui::Button::new(RichText::new("📁 + Pastas").size(13.0));
                     if ui.add(add_fld).clicked() {

@@ -20,10 +20,10 @@ pub fn render_queue_view(
     let waiting = queue.waiting_count();
     let can_enqueue = !current_sources.is_empty() && current_destination.is_some();
 
-    // Queue Header & Actions (Responsive wrapped bar)
-    ui.horizontal_wrapped(|ui| {
+    // Queue Header & Actions
+    ui.horizontal(|ui| {
         ui.label(
-            RichText::new(format!("📋 Fila de Transferências ({waiting} aguardando)"))
+            RichText::new(format!("📋 Fila ({waiting} aguardando)"))
                 .strong()
                 .size(15.5),
         );

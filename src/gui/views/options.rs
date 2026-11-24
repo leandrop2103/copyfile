@@ -482,7 +482,7 @@ pub fn render_options(
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(egui::Margin::same(14))
                     .show(col_right, |ui| {
-                        ui.horizontal_wrapped(|ui| {
+                        ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("⚡ CopyFile")
                                     .strong()
