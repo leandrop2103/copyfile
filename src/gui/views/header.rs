@@ -6,7 +6,7 @@ use crate::core::profiles::{
     get_current_user_presets, get_presets_for_user_path, list_all_windows_users,
 };
 use crate::core::types::{CopyConfig, OverwritePolicy};
-use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
+use crate::gui::theme::AppPalette;
 use eframe::egui::{self, Color32, CornerRadius, ProgressBar, RichText, Stroke, Ui, Vec2};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -93,9 +93,10 @@ pub fn render_header(
     on_open_sources_manager: impl FnOnce(),
 ) {
     let mut open_sources_manager_requested = false;
+    let pal = AppPalette::from_ui(ui);
 
     egui::Frame::NONE
-        .fill(Color32::from_rgb(24, 33, 47))
+        .fill(pal.bg_header)
         .inner_margin(12.0)
         .show(ui, |ui| {
             let avail_w = ui.available_width();
@@ -198,7 +199,7 @@ pub fn render_header(
                         egui::Button::new(
                             RichText::new(format!("📋 Gerenciar ({})", sources.len()))
                                 .size(13.0)
-                                .color(COLOR_ACCENT)
+                                .color(pal.accent)
                                 .strong(),
                         )
                         .frame(false),
@@ -237,7 +238,7 @@ pub fn render_header(
                         )
                         .italics()
                         .size(13.0)
-                        .color(Color32::from_rgb(148, 163, 184)),
+                        .color(pal.text_muted),
                     );
                 });
             } else {
@@ -259,8 +260,8 @@ pub fn render_header(
                         let short_name = truncate_label(raw_name, 22);
 
                         egui::Frame::NONE
-                            .fill(Color32::from_rgb(30, 41, 59))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
+                            .fill(pal.bg_badge)
+                            .stroke(Stroke::new(1.0_f32, pal.border_strong))
                             .corner_radius(CornerRadius::same(5))
                             .inner_margin(egui::Margin::symmetric(8, 3))
                             .show(ui, |ui| {
@@ -270,7 +271,7 @@ pub fn render_header(
                                         RichText::new(format!("{icon} {short_name}"))
                                             .size(12.5)
                                             .strong()
-                                            .color(Color32::from_rgb(226, 232, 240)),
+                                            .color(pal.text_primary),
                                     )
                                     .on_hover_text(&full_path);
 
@@ -278,7 +279,7 @@ pub fn render_header(
                                         let remove_btn = ui.add(
                                             egui::Button::new(
                                                 RichText::new("✖")
-                                                    .color(COLOR_ERROR)
+                                                    .color(pal.error)
                                                     .size(11.0)
                                                     .strong(),
                                             )
@@ -301,14 +302,14 @@ pub fn render_header(
                             RichText::new(menu_label)
                                 .size(12.5)
                                 .strong()
-                                .color(Color32::WHITE),
+                                .color(pal.text_primary),
                             |ui| {
                                 ui.set_min_width(340.0);
                                 ui.set_max_width(480.0);
                                 ui.label(
                                     RichText::new(format!("Itens adicionais ({remaining_count}):"))
                                         .size(12.5)
-                                        .color(COLOR_MUTED),
+                                        .color(pal.text_muted),
                                 );
                                 ui.separator();
 
@@ -326,7 +327,7 @@ pub fn render_header(
                                                         if ui
                                                             .button(
                                                                 RichText::new("✖")
-                                                                    .color(COLOR_ERROR)
+                                                                    .color(pal.error)
                                                                     .size(11.0),
                                                             )
                                                             .clicked()
@@ -340,9 +341,7 @@ pub fn render_header(
                                                                     "{icon} {path_str}"
                                                                 ))
                                                                 .size(12.5)
-                                                                .color(Color32::from_rgb(
-                                                                    226, 232, 240,
-                                                                )),
+                                                                .color(pal.text_primary),
                                                             )
                                                             .truncate(),
                                                         )
@@ -354,7 +353,7 @@ pub fn render_header(
                                                     egui::Label::new(
                                                         RichText::new(format!("{icon} {path_str}"))
                                                             .size(12.5)
-                                                            .color(Color32::from_rgb(226, 232, 240)),
+                                                            .color(pal.text_primary),
                                                     )
                                                     .truncate(),
                                                 )
@@ -369,7 +368,7 @@ pub fn render_header(
                                 if ui
                                     .button(
                                         RichText::new("📋 Abrir Gerenciador Completo...")
-                                            .color(COLOR_ACCENT)
+                                            .color(pal.accent)
                                             .strong()
                                             .size(13.0),
                                     )
@@ -441,8 +440,8 @@ pub fn render_header(
                     let mut clear_dest = false;
 
                     egui::Frame::NONE
-                        .fill(Color32::from_rgb(20, 50, 40))
-                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(16, 185, 129)))
+                        .fill(pal.dest_bg)
+                        .stroke(Stroke::new(1.0_f32, pal.dest_border))
                         .corner_radius(CornerRadius::same(5))
                         .inner_margin(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
@@ -456,7 +455,7 @@ pub fn render_header(
                                                 .add(
                                                     egui::Button::new(
                                                         RichText::new("✖")
-                                                            .color(COLOR_ERROR)
+                                                            .color(pal.error)
                                                             .size(11.0)
                                                             .strong(),
                                                     )
@@ -472,7 +471,7 @@ pub fn render_header(
                                             ui.label(
                                                 RichText::new(format!("({space_str})"))
                                                     .size(12.5)
-                                                    .color(Color32::from_rgb(167, 243, 208)),
+                                                    .color(pal.dest_subtext),
                                             );
                                         }
 
@@ -484,7 +483,7 @@ pub fn render_header(
                                                         RichText::new(format!("📂 {display_dst}"))
                                                             .strong()
                                                             .size(13.0)
-                                                            .color(Color32::from_rgb(52, 211, 153)),
+                                                            .color(pal.dest_text),
                                                     )
                                                     .truncate(),
                                                 )
@@ -505,7 +504,7 @@ pub fn render_header(
                             RichText::new("Selecione a pasta de destino para o backup...")
                                 .italics()
                                 .size(13.5)
-                                .color(Color32::from_rgb(148, 163, 184)),
+                                .color(pal.text_muted),
                         )
                         .truncate(),
                     );
@@ -517,8 +516,8 @@ pub fn render_header(
                 if total_bytes > 0 && total_bytes > avail {
                     ui.add_space(4.0);
                     egui::Frame::NONE
-                        .fill(Color32::from_rgb(60, 20, 20))
-                        .stroke(Stroke::new(1.0_f32, COLOR_ERROR))
+                        .fill(pal.alert_error_bg)
+                        .stroke(Stroke::new(1.0_f32, pal.error))
                         .corner_radius(CornerRadius::same(4))
                         .inner_margin(egui::Margin::symmetric(10, 4))
                         .show(ui, |ui| {
@@ -529,7 +528,7 @@ pub fn render_header(
                                         format_bytes(total_bytes),
                                         format_bytes(avail)
                                     ))
-                                    .color(COLOR_ERROR)
+                                    .color(pal.error)
                                     .strong()
                                     .size(13.0),
                                 );
@@ -549,7 +548,7 @@ pub fn render_header(
                     let can_start = !sources.is_empty() && destination.is_some();
                     let (start_label, start_color) = match config.transfer_mode {
                         crate::core::types::TransferMode::Copy => {
-                            ("▶ INICIAR CÓPIA", COLOR_SUCCESS)
+                            ("▶ INICIAR CÓPIA", Color32::from_rgb(22, 163, 74))
                         }
                         crate::core::types::TransferMode::Move => {
                             ("▶ MOVER ARQUIVOS", Color32::from_rgb(217, 119, 6))
@@ -565,13 +564,13 @@ pub fn render_header(
                             .color(if can_start {
                                 Color32::WHITE
                             } else {
-                                COLOR_MUTED
+                                pal.text_muted
                             }),
                     )
                     .fill(if can_start {
                         start_color
                     } else {
-                        Color32::from_rgb(45, 55, 72)
+                        pal.btn_disabled_bg
                     })
                     .min_size(Vec2::new(165.0, 34.0));
 
@@ -654,7 +653,7 @@ pub fn render_header(
                             RichText::new("Regra:")
                                 .size(13.0)
                                 .strong()
-                                .color(Color32::from_rgb(203, 213, 225)),
+                                .color(pal.text_secondary),
                         );
                     });
                 });
@@ -665,7 +664,7 @@ pub fn render_header(
             // --- Row 3.5: Opções Rápidas de Transferência (Checkboxes alinhados e responsivos) ---
             ui.add_enabled_ui(!is_running, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("Opções:").size(13.0).color(COLOR_MUTED));
+                    ui.label(RichText::new("Opções:").size(13.0).color(pal.text_muted));
                     ui.add_space(4.0);
 
                     ui.checkbox(
@@ -722,7 +721,7 @@ pub fn render_header(
                                 RichText::new(file_label_str)
                                     .size(13.5)
                                     .strong()
-                                    .color(Color32::from_rgb(226, 232, 240)),
+                                    .color(pal.text_primary),
                             )
                             .truncate(),
                         )
@@ -733,7 +732,7 @@ pub fn render_header(
             ui.add(
                 ProgressBar::new(file_progress)
                     .animate(is_running && !is_paused)
-                    .fill(COLOR_ACCENT),
+                    .fill(pal.accent),
             );
 
             ui.add_space(4.0);
@@ -768,7 +767,7 @@ pub fn render_header(
                         ui.label(
                             RichText::new(format!("⏳ {eta_str}  |  ⚡ {speed_str}"))
                                 .size(13.5)
-                                .color(COLOR_WARNING)
+                                .color(pal.warning)
                                 .strong(),
                         );
                     } else if is_finished {
@@ -781,7 +780,7 @@ pub fn render_header(
                                 error_files
                             ))
                             .size(13.5)
-                            .color(COLOR_SUCCESS)
+                            .color(pal.success)
                             .strong(),
                         );
                     }
@@ -809,7 +808,7 @@ pub fn render_header(
             ui.add(
                 ProgressBar::new(total_progress)
                     .animate(is_running && !is_paused)
-                    .fill(COLOR_SUCCESS),
+                    .fill(pal.success),
             );
         });
 

@@ -3,7 +3,7 @@
 use crate::core::exporter::{export_csv_report, export_html_report};
 use crate::core::format::{format_bytes, format_duration};
 use crate::core::types::FileEntry;
-use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
+use crate::gui::theme::AppPalette;
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Vec2};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -31,6 +31,7 @@ pub fn render_completion_modal(
         return;
     }
 
+    let pal = AppPalette::from_ctx(ctx);
     let mut open_logs_requested = false;
     let mut retry_errors_requested = false;
     let modal_width = (ctx.screen_rect().width() - 48.0).clamp(440.0, 580.0);
@@ -41,8 +42,8 @@ pub fn render_completion_modal(
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .frame(
             egui::Frame::window(&ctx.style())
-                .fill(Color32::from_rgb(15, 23, 42))
-                .stroke(Stroke::new(1.5_f32, Color32::from_rgb(51, 65, 85)))
+                .fill(pal.bg_window)
+                .stroke(Stroke::new(1.5_f32, pal.border))
                 .corner_radius(CornerRadius::same(12))
                 .inner_margin(egui::Margin::same(20)),
         )
@@ -58,9 +59,9 @@ pub fn render_completion_modal(
                     "Transferência Finalizada com Sucesso!"
                 };
                 let header_color = if error_files > 0 {
-                    COLOR_WARNING
+                    pal.warning
                 } else {
-                    COLOR_SUCCESS
+                    pal.success
                 };
 
                 ui.label(
@@ -73,7 +74,7 @@ pub fn render_completion_modal(
                 ui.label(
                     RichText::new(format!("Modo de operação: {transfer_mode_name}"))
                         .size(13.0)
-                        .color(Color32::from_rgb(148, 163, 184)),
+                        .color(pal.text_muted),
                 );
             });
 
@@ -81,8 +82,8 @@ pub fn render_completion_modal(
 
             // Detailed Statistics Grid Card
             egui::Frame::NONE
-                .fill(Color32::from_rgb(24, 33, 47))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                .fill(pal.bg_card)
+                .stroke(Stroke::new(1.0_f32, pal.border))
                 .corner_radius(CornerRadius::same(8))
                 .inner_margin(egui::Margin::same(14))
                 .show(ui, |ui| {
@@ -93,7 +94,7 @@ pub fn render_completion_modal(
                             ui.label(
                                 RichText::new("📦 Volume Total:")
                                     .size(13.5)
-                                    .color(COLOR_MUTED),
+                                    .color(pal.text_muted),
                             );
                             ui.label(RichText::new(format_bytes(total_bytes)).size(13.5).strong());
                             ui.end_row();
@@ -101,7 +102,7 @@ pub fn render_completion_modal(
                             ui.label(
                                 RichText::new("📁 Pastas / Arquivos:")
                                     .size(13.5)
-                                    .color(COLOR_MUTED),
+                                    .color(pal.text_muted),
                             );
                             ui.label(
                                 RichText::new(format!(
@@ -115,13 +116,13 @@ pub fn render_completion_modal(
                             ui.label(
                                 RichText::new("✔ Copiados / Processados:")
                                     .size(13.5)
-                                    .color(COLOR_MUTED),
+                                    .color(pal.text_muted),
                             );
                             ui.label(
                                 RichText::new(format!("{copied_files} itens"))
                                     .size(13.5)
                                     .strong()
-                                    .color(COLOR_SUCCESS),
+                                    .color(pal.success),
                             );
                             ui.end_row();
 
@@ -129,12 +130,12 @@ pub fn render_completion_modal(
                                 ui.label(
                                     RichText::new("⏭ Ignorados (Existentes):")
                                         .size(13.5)
-                                        .color(COLOR_MUTED),
+                                        .color(pal.text_muted),
                                 );
                                 ui.label(
                                     RichText::new(format!("{skipped_files} itens"))
                                         .size(13.5)
-                                        .color(COLOR_WARNING),
+                                        .color(pal.warning),
                                 );
                                 ui.end_row();
                             }
@@ -143,13 +144,13 @@ pub fn render_completion_modal(
                                 ui.label(
                                     RichText::new("❌ Falhas na Cópia:")
                                         .size(13.5)
-                                        .color(COLOR_MUTED),
+                                        .color(pal.text_muted),
                                 );
                                 ui.label(
                                     RichText::new(format!("{error_files} itens com erro"))
                                         .size(13.5)
                                         .strong()
-                                        .color(COLOR_ERROR),
+                                        .color(pal.error),
                                 );
                                 ui.end_row();
                             }
@@ -157,7 +158,7 @@ pub fn render_completion_modal(
                             ui.label(
                                 RichText::new("⏱ Tempo & Velocidade:")
                                     .size(13.5)
-                                    .color(COLOR_MUTED),
+                                    .color(pal.text_muted),
                             );
                             ui.label(
                                 RichText::new(format!(
@@ -167,7 +168,7 @@ pub fn render_completion_modal(
                                 ))
                                 .size(13.5)
                                 .strong()
-                                .color(COLOR_ACCENT),
+                                .color(pal.accent),
                             );
                             ui.end_row();
                         });
@@ -180,7 +181,7 @@ pub fn render_completion_modal(
                 ui.label(
                     RichText::new("📄 Relatórios:")
                         .size(13.0)
-                        .color(COLOR_MUTED),
+                        .color(pal.text_muted),
                 );
 
                 if ui
@@ -225,7 +226,7 @@ pub fn render_completion_modal(
             ui.separator();
             ui.add_space(12.0);
 
-            // Modal Action Buttons (Guaranteed to fit inside 580px even with Retry button!)
+            // Modal Action Buttons
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
 
@@ -252,7 +253,7 @@ pub fn render_completion_modal(
                             .strong()
                             .color(Color32::WHITE),
                     )
-                    .fill(COLOR_ERROR)
+                    .fill(pal.error)
                     .min_size(Vec2::new(135.0, 34.0));
                     if ui.add(retry_btn).clicked() {
                         retry_errors_requested = true;
@@ -297,6 +298,7 @@ pub fn render_sources_manager_modal(
         return;
     }
 
+    let pal = AppPalette::from_ctx(ctx);
     let max_w = (ctx.screen_rect().width() - 60.0).clamp(460.0, 720.0);
     let max_h = (ctx.screen_rect().height() - 80.0).clamp(360.0, 500.0);
 
@@ -306,9 +308,9 @@ pub fn render_sources_manager_modal(
         .default_size(Vec2::new(max_w, max_h))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .frame(
-            egui::Frame::NONE
-                .fill(Color32::from_rgb(15, 23, 42))
-                .stroke(Stroke::new(1.5_f32, Color32::from_rgb(59, 130, 246)))
+            egui::Frame::window(&ctx.style())
+                .fill(pal.bg_window)
+                .stroke(Stroke::new(1.5_f32, pal.accent))
                 .corner_radius(CornerRadius::same(10))
                 .inner_margin(egui::Margin::same(18)),
         )
@@ -324,7 +326,7 @@ pub fn render_sources_manager_modal(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if !is_running && !sources.is_empty() {
                         let clear_btn = egui::Button::new(
-                            RichText::new("🗑 Limpar Tudo").color(COLOR_ERROR).size(13.0),
+                            RichText::new("🗑 Limpar Tudo").color(pal.error).size(13.0),
                         );
                         if ui.add(clear_btn).clicked() {
                             sources.clear();
@@ -349,7 +351,7 @@ pub fn render_sources_manager_modal(
                             ui.add_space(40.0);
                             ui.label(
                                 RichText::new("Nenhuma pasta ou arquivo adicionado.")
-                                    .color(COLOR_MUTED)
+                                    .color(pal.text_muted)
                                     .size(15.0)
                                     .italics(),
                             );
@@ -365,8 +367,8 @@ pub fn render_sources_manager_modal(
                             let icon = if is_dir { "📁" } else { "📄" };
 
                             egui::Frame::NONE
-                                .fill(Color32::from_rgb(24, 33, 47))
-                                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                                .fill(pal.bg_card)
+                                .stroke(Stroke::new(1.0_f32, pal.border))
                                 .corner_radius(CornerRadius::same(6))
                                 .inner_margin(egui::Margin::symmetric(10, 6))
                                 .show(ui, |ui| {
@@ -378,7 +380,7 @@ pub fn render_sources_manager_modal(
                                                 if !is_running {
                                                     let rem_btn = egui::Button::new(
                                                         RichText::new("✖ Remover")
-                                                            .color(COLOR_ERROR)
+                                                            .color(pal.error)
                                                             .size(12.5),
                                                     );
                                                     if ui.add(rem_btn).clicked() {
@@ -397,9 +399,7 @@ pub fn render_sources_manager_modal(
                                                                 RichText::new(path_str.as_ref())
                                                                     .size(13.0)
                                                                     .strong()
-                                                                    .color(Color32::from_rgb(
-                                                                        226, 232, 240,
-                                                                    )),
+                                                                    .color(pal.text_primary),
                                                             )
                                                             .truncate(),
                                                         )
@@ -477,6 +477,7 @@ pub fn render_paste_prompt_modal(
         return;
     }
 
+    let pal = AppPalette::from_ctx(ctx);
     let mut paste_copyfile_requested = false;
     let mut paste_explorer_requested = false;
     let modal_width = (ctx.screen_rect().width() - 48.0).clamp(400.0, 480.0);
@@ -487,8 +488,8 @@ pub fn render_paste_prompt_modal(
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .frame(
             egui::Frame::window(&ctx.style())
-                .fill(Color32::from_rgb(15, 23, 42))
-                .stroke(Stroke::new(1.5_f32, Color32::from_rgb(59, 130, 246)))
+                .fill(pal.bg_window)
+                .stroke(Stroke::new(1.5_f32, pal.accent))
                 .corner_radius(CornerRadius::same(12))
                 .inner_margin(egui::Margin::same(22)),
         )
@@ -500,7 +501,7 @@ pub fn render_paste_prompt_modal(
                     RichText::new("⚡ Colar com CopyFile")
                         .size(19.0)
                         .strong()
-                        .color(Color32::WHITE),
+                        .color(pal.text_primary),
                 );
                 ui.add_space(4.0);
                 ui.label(
@@ -508,7 +509,7 @@ pub fn render_paste_prompt_modal(
                         "Foram detectados {sources_count} itens na Área de Transferência."
                     ))
                     .size(13.5)
-                    .color(Color32::from_rgb(203, 213, 225)),
+                    .color(pal.text_secondary),
                 );
             });
 
@@ -517,8 +518,8 @@ pub fn render_paste_prompt_modal(
             if let Some(dst) = destination {
                 let dst_str = dst.display().to_string();
                 egui::Frame::NONE
-                    .fill(Color32::from_rgb(24, 33, 47))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                    .fill(pal.dest_bg)
+                    .stroke(Stroke::new(1.0_f32, pal.dest_border))
                     .corner_radius(CornerRadius::same(6))
                     .inner_margin(egui::Margin::symmetric(12, 8))
                     .show(ui, |ui| {
@@ -526,7 +527,7 @@ pub fn render_paste_prompt_modal(
                             egui::Label::new(
                                 RichText::new(format!("🎯 Destino: {dst_str}"))
                                     .size(13.0)
-                                    .color(Color32::from_rgb(52, 211, 153))
+                                    .color(pal.dest_text)
                                     .strong(),
                             )
                             .truncate(),
@@ -544,9 +545,9 @@ pub fn render_paste_prompt_modal(
                     RichText::new("📁 Colar com Explorer")
                         .size(13.5)
                         .strong()
-                        .color(Color32::from_rgb(203, 213, 225)),
+                        .color(pal.btn_secondary_text),
                 )
-                .fill(Color32::from_rgb(51, 65, 85))
+                .fill(pal.btn_secondary_bg)
                 .min_size(Vec2::new(175.0, 36.0));
 
                 if ui.add(explorer_btn).clicked() {
@@ -593,6 +594,7 @@ pub fn render_about_modal(
         return;
     }
 
+    let pal = AppPalette::from_ctx(ctx);
     let mut trigger_update_requested = false;
     let mut check_update_requested = false;
     let modal_width = (ctx.screen_rect().width() - 48.0).clamp(440.0, 520.0);
@@ -603,8 +605,8 @@ pub fn render_about_modal(
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .frame(
             egui::Frame::window(&ctx.style())
-                .fill(Color32::from_rgb(15, 23, 42))
-                .stroke(Stroke::new(1.5_f32, Color32::from_rgb(51, 65, 85)))
+                .fill(pal.bg_window)
+                .stroke(Stroke::new(1.5_f32, pal.border))
                 .corner_radius(CornerRadius::same(12))
                 .inner_margin(egui::Margin::same(18)),
         )
@@ -617,20 +619,20 @@ pub fn render_about_modal(
                     RichText::new("⚡ CopyFile")
                         .strong()
                         .size(24.0)
-                        .color(COLOR_ACCENT),
+                        .color(pal.accent),
                 );
                 ui.add_space(2.0);
                 ui.label(
                     RichText::new(format!("Versão instalada: v{}", env!("CARGO_PKG_VERSION")))
                         .size(13.5)
-                        .color(COLOR_MUTED)
+                        .color(pal.text_muted)
                         .monospace(),
                 );
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new("Ferramenta profissional para backup e cópia ultrarrápida com pipeline duplo-buffer, xxHash3 SIMD e preservação integral de metadados.")
                         .size(12.5)
-                        .color(Color32::from_rgb(203, 213, 225)),
+                        .color(pal.text_secondary),
                 );
             });
 
@@ -647,8 +649,8 @@ pub fn render_about_modal(
             ui.add_space(4.0);
 
             egui::Frame::NONE
-                .fill(Color32::from_rgb(24, 33, 47))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                .fill(pal.bg_card)
+                .stroke(Stroke::new(1.0_f32, pal.border))
                 .corner_radius(CornerRadius::same(8))
                 .inner_margin(egui::Margin::same(12))
                 .show(ui, |ui| {
@@ -659,18 +661,18 @@ pub fn render_about_modal(
                                 RichText::new(format!("v{}", info.version))
                                     .monospace()
                                     .strong()
-                                    .color(COLOR_SUCCESS),
+                                    .color(pal.success),
                             );
                             ui.label(
                                 RichText::new("(Nova versão disponível!)")
                                     .small()
-                                    .color(COLOR_SUCCESS),
+                                    .color(pal.success),
                             );
                         } else {
                             ui.label(
                                 RichText::new("Você está na versão mais recente.")
                                     .size(13.5)
-                                    .color(COLOR_SUCCESS),
+                                    .color(pal.success),
                             );
                         }
                     });
@@ -686,7 +688,7 @@ pub fn render_about_modal(
                                         RichText::new(&info.release_notes)
                                             .small()
                                             .italics()
-                                            .color(Color32::from_rgb(148, 163, 184)),
+                                            .color(pal.text_muted),
                                     );
                                 });
                         }
@@ -730,7 +732,7 @@ pub fn render_about_modal(
                                 ui.label(
                                     RichText::new("Consultando GitHub Releases...")
                                         .size(13.0)
-                                        .color(COLOR_ACCENT),
+                                        .color(pal.accent),
                                 );
                             });
                         }
@@ -748,7 +750,7 @@ pub fn render_about_modal(
                         crate::core::UpdateStatus::Success(msg) => {
                             ui.label(
                                 RichText::new(msg)
-                                    .color(COLOR_SUCCESS)
+                                    .color(pal.success)
                                     .strong()
                                     .size(13.5),
                             );
@@ -756,14 +758,16 @@ pub fn render_about_modal(
                         crate::core::UpdateStatus::Error(err) => {
                             ui.label(
                                 RichText::new(format!("Erro: {err}"))
-                                    .color(COLOR_ERROR)
+                                    .color(pal.error)
                                     .size(12.5),
                             );
                             ui.add_space(6.0);
                             ui.horizontal_wrapped(|ui| {
                                 if available_update.is_some()
                                     && ui
-                                        .button(RichText::new("🔁 Tentar Baixar Novamente").size(13.0))
+                                        .button(
+                                            RichText::new("🔁 Tentar Baixar Novamente").size(13.0),
+                                        )
                                         .clicked()
                                 {
                                     trigger_update_requested = true;
@@ -791,8 +795,8 @@ pub fn render_about_modal(
             );
             ui.add_space(4.0);
             egui::Frame::NONE
-                .fill(Color32::from_rgb(24, 33, 47))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                .fill(pal.bg_card)
+                .stroke(Stroke::new(1.0_f32, pal.border))
                 .corner_radius(CornerRadius::same(8))
                 .inner_margin(egui::Margin::same(10))
                 .show(ui, |ui| {
@@ -801,22 +805,22 @@ pub fn render_about_modal(
                             RichText::new("👤 Leandro")
                                 .strong()
                                 .size(13.5)
-                                .color(Color32::WHITE),
+                                .color(pal.text_primary),
                         );
-                        ui.label(RichText::new("+").size(13.0).color(COLOR_MUTED));
+                        ui.label(RichText::new("+").size(13.0).color(pal.text_muted));
                         ui.label(
                             RichText::new("✨ Gemini (Google DeepMind)")
                                 .strong()
                                 .size(13.5)
-                                .color(COLOR_WARNING),
+                                .color(pal.warning),
                         );
                     });
                     ui.add_space(2.0);
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new("Licença:").small().color(COLOR_MUTED));
-                        ui.label(RichText::new("MIT").small().color(COLOR_SUCCESS));
-                        ui.label(RichText::new("•").small().color(COLOR_MUTED));
-                        ui.label(RichText::new("GitHub:").small().color(COLOR_MUTED));
+                        ui.label(RichText::new("Licença:").small().color(pal.text_muted));
+                        ui.label(RichText::new("MIT").small().color(pal.success));
+                        ui.label(RichText::new("•").small().color(pal.text_muted));
+                        ui.label(RichText::new("GitHub:").small().color(pal.text_muted));
                         ui.hyperlink_to(
                             "leandrop2103/copyfile",
                             "https://github.com/leandrop2103/copyfile",
@@ -830,9 +834,9 @@ pub fn render_about_modal(
                     RichText::new("✖ Fechar")
                         .size(13.5)
                         .strong()
-                        .color(Color32::WHITE),
+                        .color(pal.btn_secondary_text),
                 )
-                .fill(Color32::from_rgb(51, 65, 85))
+                .fill(pal.btn_secondary_bg)
                 .min_size(Vec2::new(120.0, 32.0));
 
                 if ui.add(close_btn).clicked() {

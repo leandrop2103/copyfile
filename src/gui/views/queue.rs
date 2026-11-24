@@ -1,7 +1,7 @@
 //! Transfer Queue management view with job reordering, start-queue action, and zero-overflow cards.
 
 use crate::core::queue::{QueueStatus, TransferQueue};
-use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
+use crate::gui::theme::AppPalette;
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, Ui, Vec2};
 use std::path::PathBuf;
 
@@ -15,6 +15,7 @@ pub fn render_queue_view(
     on_enqueue_current: impl FnOnce(),
     on_start_queue: impl FnOnce(),
 ) {
+    let pal = AppPalette::from_ui(ui);
     ui.add_space(6.0);
 
     let waiting = queue.waiting_count();
@@ -56,13 +57,13 @@ pub fn render_queue_view(
                     .color(if can_enqueue {
                         Color32::WHITE
                     } else {
-                        COLOR_MUTED
+                        pal.text_muted
                     }),
             )
             .fill(if can_enqueue {
                 Color32::from_rgb(37, 99, 235)
             } else {
-                Color32::from_rgb(45, 55, 72)
+                pal.btn_disabled_bg
             })
             .min_size(Vec2::new(165.0, 28.0));
 
@@ -85,7 +86,7 @@ pub fn render_queue_view(
             ui.add_space(50.0);
             ui.label(
                 RichText::new("A fila de transferências está vazia.")
-                    .color(COLOR_MUTED)
+                    .color(pal.text_muted)
                     .size(16.0)
                     .italics(),
             );
@@ -94,7 +95,7 @@ pub fn render_queue_view(
                 RichText::new(
                     "Selecione pastas na barra superior e clique em '➕ Enfileirar Seleção Atual'.",
                 )
-                .color(COLOR_MUTED)
+                .color(pal.text_muted)
                 .size(13.5),
             );
         });
@@ -110,15 +111,15 @@ pub fn render_queue_view(
         .show(ui, |ui| {
             for job in queue.jobs() {
                 let status_color = match job.status {
-                    QueueStatus::Waiting => COLOR_WARNING,
-                    QueueStatus::Running => COLOR_ACCENT,
-                    QueueStatus::Completed => COLOR_SUCCESS,
-                    QueueStatus::Cancelled => COLOR_ERROR,
+                    QueueStatus::Waiting => pal.warning,
+                    QueueStatus::Running => pal.accent,
+                    QueueStatus::Completed => pal.success,
+                    QueueStatus::Cancelled => pal.error,
                 };
 
                 egui::Frame::NONE
-                    .fill(Color32::from_rgb(24, 33, 47))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                    .fill(pal.bg_card)
+                    .stroke(Stroke::new(1.0_f32, pal.border))
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(egui::Margin::same(12))
                     .show(ui, |ui| {
@@ -140,7 +141,7 @@ pub fn render_queue_view(
                                         job.sources.len()
                                     ))
                                     .size(13.0)
-                                    .color(Color32::from_rgb(203, 213, 225)),
+                                    .color(pal.text_secondary),
                                 )
                                 .truncate(),
                             );
@@ -150,9 +151,7 @@ pub fn render_queue_view(
                                 |ui| {
                                     if job.status == QueueStatus::Waiting {
                                         let rem_btn = egui::Button::new(
-                                            RichText::new("✖ Remover")
-                                                .color(COLOR_ERROR)
-                                                .size(12.0),
+                                            RichText::new("✖ Remover").color(pal.error).size(12.0),
                                         );
                                         if ui.add(rem_btn).clicked() {
                                             remove_id = Some(job.id);
@@ -185,7 +184,7 @@ pub fn render_queue_view(
                             egui::Label::new(
                                 RichText::new(format!("🎯 Destino: {dst_str}"))
                                     .size(13.0)
-                                    .color(Color32::from_rgb(148, 163, 184)),
+                                    .color(pal.text_secondary),
                             )
                             .truncate(),
                         )
@@ -202,7 +201,7 @@ pub fn render_queue_view(
                             egui::Label::new(
                                 RichText::new(format!("📁 Origens: {sources_str}"))
                                     .size(12.5)
-                                    .color(Color32::from_rgb(100, 116, 139)),
+                                    .color(pal.text_muted),
                             )
                             .truncate(),
                         )

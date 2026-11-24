@@ -4,7 +4,7 @@ use crate::core::scanner::scan_sources;
 use crate::core::types::{
     CopyConfig, CopyEvent, FileEntry, FileStatus, LogEntry, LogLevel, PostCopyAction,
 };
-use crate::gui::theme::configure_theme;
+use crate::gui::theme::{apply_theme_mode, configure_theme, AppPalette, ThemeMode};
 use crate::gui::views::{
     render_completion_modal, render_file_list, render_header, render_logs, render_options,
     render_queue_view, render_stats, ListFilter, LogFilter, SpeedHistory,
@@ -74,6 +74,7 @@ pub struct CopyFileApp {
 
     // UI View State
     active_tab: AppTab,
+    theme_mode: ThemeMode,
     list_filter: ListFilter,
     log_filter: LogFilter,
     search_query: String,
@@ -141,6 +142,7 @@ impl Default for CopyFileApp {
             transfer_queue: TransferQueue::default(),
             active_job_id: None,
             active_tab: AppTab::FileList,
+            theme_mode: ThemeMode::System,
             list_filter: ListFilter::All,
             log_filter: LogFilter::All,
             search_query: String::new(),
@@ -183,7 +185,8 @@ impl CopyFileApp {
         prompt_paste: bool,
         auto_start: bool,
     ) -> Self {
-        configure_theme(&cc.egui_ctx);
+        let theme_mode = ThemeMode::load();
+        configure_theme(&cc.egui_ctx, theme_mode);
 
         let available_update = std::sync::Arc::new(std::sync::Mutex::new(None));
         let update_status =
@@ -209,6 +212,7 @@ impl CopyFileApp {
         app.auto_start = auto_start;
         app.available_update = available_update;
         app.update_status = update_status;
+        app.theme_mode = theme_mode;
         app
     }
 
@@ -1126,13 +1130,15 @@ impl eframe::App for CopyFileApp {
                 ui.selectable_value(&mut self.active_tab, AppTab::Options, "⚙ Opções");
                 ui.selectable_value(&mut self.active_tab, AppTab::Stats, "📊 Estatísticas");
 
-                // Lado Direito: Botão "Sobre" e Pill compacta de Atualização
+                // Lado Direito: Botão "Sobre", Alternador de Tema e Pill compacta de Atualização
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let pal = AppPalette::from_ui(ui);
+
                     let about_btn = egui::Button::new(
                         RichText::new("ℹ Sobre")
                             .size(13.0)
                             .strong()
-                            .color(Color32::from_rgb(226, 232, 240)),
+                            .color(pal.text_primary),
                     );
                     if ui
                         .add(about_btn)
@@ -1140,6 +1146,31 @@ impl eframe::App for CopyFileApp {
                         .clicked()
                     {
                         self.show_about_modal = true;
+                    }
+
+                    let active_mode_name = if pal.is_dark { "Escuro" } else { "Claro" };
+                    let theme_hover = match self.theme_mode {
+                        ThemeMode::System => format!(
+                            "Tema: Automático (Sistema atual: {active_mode_name})\nClique para alternar manualmente"
+                        ),
+                        ThemeMode::Light => {
+                            "Tema: Modo Claro\nClique para alternar para Modo Escuro".to_string()
+                        }
+                        ThemeMode::Dark => {
+                            "Tema: Modo Escuro\nClique para voltar ao Automático (Sistema)"
+                                .to_string()
+                        }
+                    };
+                    let theme_btn = egui::Button::new(
+                        RichText::new(self.theme_mode.short_label())
+                            .size(13.0)
+                            .strong()
+                            .color(pal.text_primary),
+                    );
+                    if ui.add(theme_btn).on_hover_text(theme_hover).clicked() {
+                        self.theme_mode = self.theme_mode.next_cycle(pal.is_dark);
+                        apply_theme_mode(ctx, self.theme_mode);
+                        self.theme_mode.save();
                     }
 
                     let has_update = self
@@ -1241,6 +1272,7 @@ impl eframe::App for CopyFileApp {
                 render_options(
                     ui,
                     &mut self.config,
+                    &mut self.theme_mode,
                     self.is_running,
                     &available_update,
                     &update_status,

@@ -3,7 +3,7 @@
 
 use crate::core::format::format_bytes;
 use crate::core::types::{FileEntry, FileStatus};
-use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
+use crate::gui::theme::AppPalette;
 use eframe::egui::{self, RichText, ScrollArea, Ui};
 use egui_extras::{Column, TableBuilder};
 
@@ -50,6 +50,7 @@ pub fn render_file_list(
     on_retry_failed: impl FnOnce(),
 ) {
     let total_count = entries.len();
+    let pal = AppPalette::from_ui(ui);
 
     // --- Responsive Toolbar (Never overflows or collides at 800px!) ---
     ui.horizontal_wrapped(|ui| {
@@ -66,21 +67,21 @@ pub fn render_file_list(
             ListFilter::SuccessOnly,
             RichText::new(format!("✔ OK ({success_count})"))
                 .size(13.5)
-                .color(COLOR_SUCCESS),
+                .color(pal.success),
         );
         ui.selectable_value(
             filter,
             ListFilter::SkippedOnly,
             RichText::new(format!("⚠ Pul. ({skipped_count})"))
                 .size(13.5)
-                .color(COLOR_WARNING),
+                .color(pal.warning),
         );
         ui.selectable_value(
             filter,
             ListFilter::ErrorsOnly,
             RichText::new(format!("✖ Erros ({error_count})"))
                 .size(13.5)
-                .color(COLOR_ERROR),
+                .color(pal.error),
         );
 
         if !is_running && error_count > 0 {
@@ -90,7 +91,7 @@ pub fn render_file_list(
                     .strong()
                     .color(eframe::egui::Color32::WHITE),
             )
-            .fill(COLOR_ERROR);
+            .fill(pal.error);
 
             if ui
                 .add(retry_btn)
@@ -161,7 +162,7 @@ pub fn render_file_list(
             ui.add_space(60.0);
             ui.label(
                 RichText::new("Nenhum arquivo na fila de transferência.")
-                    .color(COLOR_MUTED)
+                    .color(pal.text_muted)
                     .size(16.0)
                     .italics(),
             );
@@ -226,7 +227,7 @@ pub fn render_file_list(
                         ui.label(
                             RichText::new("⚡")
                                 .size(14.0)
-                                .color(COLOR_ACCENT)
+                                .color(pal.accent)
                                 .strong(),
                         )
                         .on_hover_text(
@@ -261,14 +262,14 @@ pub fn render_file_list(
                         let entry = &entries[entry_idx];
 
                         let (status_text, status_color, status_icon) = match &entry.status {
-                            FileStatus::Pending => ("Pendente", COLOR_MUTED, "⏳"),
-                            FileStatus::Copying { .. } => ("Copiando...", COLOR_ACCENT, "⚡"),
-                            FileStatus::Verifying => ("Verificando xxHash3...", COLOR_WARNING, "🔍"),
+                            FileStatus::Pending => ("Pendente", pal.text_muted, "⏳"),
+                            FileStatus::Copying { .. } => ("Copiando...", pal.accent, "⚡"),
+                            FileStatus::Verifying => ("Verificando xxHash3...", pal.warning, "🔍"),
                             FileStatus::Success { .. } => {
-                                ("Concluído com sucesso", COLOR_SUCCESS, "✔")
+                                ("Concluído com sucesso", pal.success, "✔")
                             }
-                            FileStatus::Skipped { .. } => ("Ignorado", COLOR_WARNING, "⏭"),
-                            FileStatus::Error { .. } => ("Erro na cópia", COLOR_ERROR, "❌"),
+                            FileStatus::Skipped { .. } => ("Ignorado", pal.warning, "⏭"),
+                            FileStatus::Error { .. } => ("Erro na cópia", pal.error, "❌"),
                         };
 
                         // Column 1: Status Icon only
@@ -336,7 +337,7 @@ pub fn render_file_list(
                                     RichText::new(hash_str)
                                         .monospace()
                                         .size(12.5)
-                                        .color(COLOR_ACCENT),
+                                        .color(pal.accent),
                                 )
                                 .truncate(),
                             );
@@ -357,7 +358,7 @@ pub fn render_file_list(
                                 RichText::new(&entry.attributes)
                                     .monospace()
                                     .size(12.5)
-                                    .color(COLOR_MUTED),
+                                    .color(pal.text_muted),
                             );
                         });
 
@@ -366,7 +367,7 @@ pub fn render_file_list(
                             FileStatus::Error { error } => {
                                 ui.add(
                                     egui::Label::new(
-                                        RichText::new(error).color(COLOR_ERROR).size(12.5),
+                                        RichText::new(error).color(pal.error).size(12.5),
                                     )
                                     .truncate(),
                                 )
@@ -375,7 +376,7 @@ pub fn render_file_list(
                             FileStatus::Skipped { reason } => {
                                 ui.add(
                                     egui::Label::new(
-                                        RichText::new(reason).color(COLOR_WARNING).size(12.5),
+                                        RichText::new(reason).color(pal.warning).size(12.5),
                                     )
                                     .truncate(),
                                 )
@@ -384,7 +385,7 @@ pub fn render_file_list(
                             FileStatus::Verifying => {
                                 ui.label(
                                     RichText::new("Verificando integridade...")
-                                        .color(COLOR_WARNING)
+                                        .color(pal.warning)
                                         .size(12.5)
                                         .strong(),
                                 );
@@ -392,7 +393,7 @@ pub fn render_file_list(
                             FileStatus::Success { duration_ms, .. } => {
                                 ui.label(
                                     RichText::new(format!("{duration_ms}ms"))
-                                        .color(COLOR_SUCCESS)
+                                        .color(pal.success)
                                         .size(12.5),
                                 );
                             }
@@ -407,13 +408,13 @@ pub fn render_file_list(
                                 };
                                 ui.label(
                                     RichText::new(format!("{pct:.1}%"))
-                                        .color(COLOR_ACCENT)
+                                        .color(pal.accent)
                                         .size(12.5)
                                         .strong(),
                                 );
                             }
                             FileStatus::Pending => {
-                                ui.label(RichText::new("-").color(COLOR_MUTED).size(12.5));
+                                ui.label(RichText::new("-").color(pal.text_muted).size(12.5));
                             }
                         });
                     });

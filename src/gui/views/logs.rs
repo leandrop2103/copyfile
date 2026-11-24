@@ -1,8 +1,8 @@
 //! Structured logging view with export, clipboard capabilities, clipped columns, and fast filtering.
 
 use crate::core::types::{LogEntry, LogLevel};
-use crate::gui::theme::{COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
-use eframe::egui::{self, Color32, RichText, Ui};
+use crate::gui::theme::AppPalette;
+use eframe::egui::{self, RichText, Ui};
 use egui_extras::{Column, TableBuilder};
 use std::collections::VecDeque;
 use std::fs;
@@ -40,6 +40,8 @@ pub fn render_logs(
     search_query: &mut String,
     on_clear: impl FnOnce(),
 ) {
+    let pal = AppPalette::from_ui(ui);
+
     // --- Responsive Toolbar (Zero overlap at 800px!) ---
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
@@ -49,12 +51,12 @@ pub fn render_logs(
         ui.selectable_value(
             filter,
             LogFilter::ErrorsOnly,
-            RichText::new("Erros").size(13.0).color(COLOR_ERROR),
+            RichText::new("Erros").size(13.0).color(pal.error),
         );
         ui.selectable_value(
             filter,
             LogFilter::WarningsOnly,
-            RichText::new("Avisos").size(13.0).color(COLOR_WARNING),
+            RichText::new("Avisos").size(13.0).color(pal.warning),
         );
 
         ui.separator();
@@ -166,7 +168,7 @@ pub fn render_logs(
             ui.add_space(40.0);
             ui.label(
                 RichText::new("Nenhum registro de log para o filtro atual.")
-                    .color(COLOR_MUTED)
+                    .color(pal.text_muted)
                     .italics(),
             );
         });
@@ -207,10 +209,10 @@ pub fn render_logs(
                 };
 
                 let (level_color, level_str) = match log.level {
-                    LogLevel::Info => (Color32::from_rgb(148, 163, 184), "INFO"),
-                    LogLevel::Success => (COLOR_SUCCESS, "SUCESSO"),
-                    LogLevel::Warn => (COLOR_WARNING, "AVISO"),
-                    LogLevel::Error => (COLOR_ERROR, "ERRO"),
+                    LogLevel::Info => (pal.text_muted, "INFO"),
+                    LogLevel::Success => (pal.success, "SUCESSO"),
+                    LogLevel::Warn => (pal.warning, "AVISO"),
+                    LogLevel::Error => (pal.error, "ERRO"),
                 };
 
                 row.col(|ui| {
@@ -218,7 +220,7 @@ pub fn render_logs(
                         RichText::new(log.timestamp.format("%H:%M:%S").to_string())
                             .monospace()
                             .small()
-                            .color(COLOR_MUTED),
+                            .color(pal.text_muted),
                     );
                 });
 

@@ -8,7 +8,7 @@ use crate::core::shell::{
     register_context_menu, unregister_context_menu,
 };
 use crate::core::types::{CopyConfig, OverwritePolicy, PostCopyAction};
-use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_SUCCESS, COLOR_WARNING};
+use crate::gui::theme::{apply_theme_mode, AppPalette, ThemeMode};
 use eframe::egui::{self, Color32, CornerRadius, RichText, ScrollArea, Slider, Stroke, Ui};
 
 /// Renders the options / preferences view and the About card.
@@ -16,6 +16,7 @@ use eframe::egui::{self, Color32, CornerRadius, RichText, ScrollArea, Slider, St
 pub fn render_options(
     ui: &mut Ui,
     config: &mut CopyConfig,
+    theme_mode: &mut ThemeMode,
     is_running: bool,
     available_update: &Option<crate::core::RemoteVersionInfo>,
     update_status: &crate::core::UpdateStatus,
@@ -23,6 +24,7 @@ pub fn render_options(
     on_check_update: impl FnOnce(),
     on_open_about: impl FnOnce(),
 ) {
+    let pal = AppPalette::from_ui(ui);
     let mut trigger_update_called = false;
     let mut check_update_called = false;
     let mut open_about_called = false;
@@ -38,6 +40,42 @@ pub fn render_options(
                 // ==========================================
                 let col_left = &mut columns[0];
                 col_left.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+
+                // Theme group (always enabled, even during transfers!)
+                col_left.group(|ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new("🎨 Aparência e Tema").strong().size(15.5));
+                    ui.add_space(6.0);
+                    let mut changed = false;
+                    ui.horizontal_wrapped(|ui| {
+                        for mode in ThemeMode::all() {
+                            if ui
+                                .selectable_value(
+                                    theme_mode,
+                                    mode,
+                                    RichText::new(mode.label()).size(13.0),
+                                )
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        }
+                    });
+                    if changed {
+                        apply_theme_mode(ui.ctx(), *theme_mode);
+                        theme_mode.save();
+                    }
+                    ui.add_space(2.0);
+                    ui.label(
+                        RichText::new(
+                            "No modo Automático, o CopyFile acompanha em tempo real o tema Claro ou Escuro do Windows.",
+                        )
+                        .small()
+                        .color(pal.text_muted),
+                    );
+                });
+
+                col_left.add_space(8.0);
 
                 col_left.add_enabled_ui(!is_running, |ui| {
                     // Group 1: Performance & Pipelined I/O
@@ -89,7 +127,7 @@ pub fn render_options(
                         );
                         ui.add_space(6.0);
 
-                        ui.label(RichText::new("Modo Padrão:").size(13.0).color(COLOR_MUTED));
+                        ui.label(RichText::new("Modo Padrão:").size(13.0).color(pal.text_muted));
                         egui::ComboBox::from_id_salt("opt_transfer_mode")
                             .width(combo_w)
                             .selected_text(config.transfer_mode.label())
@@ -108,7 +146,7 @@ pub fn render_options(
                         ui.label(
                             RichText::new("Política de Sobrescrita:")
                                 .size(13.0)
-                                .color(COLOR_MUTED),
+                                .color(pal.text_muted),
                         );
                         egui::ComboBox::from_id_salt("opt_overwrite_policy")
                             .width(combo_w)
@@ -141,7 +179,7 @@ pub fn render_options(
                         ui.label(
                             RichText::new("Ao finalizar o lote:")
                                 .size(13.0)
-                                .color(COLOR_MUTED),
+                                .color(pal.text_muted),
                         );
                         egui::ComboBox::from_id_salt("opt_post_action")
                             .width(combo_w)
@@ -271,14 +309,14 @@ pub fn render_options(
                             if is_registered {
                                 ui.label(
                                     RichText::new("✔ Ativo (com ícone)")
-                                        .color(COLOR_SUCCESS)
+                                        .color(pal.success)
                                         .strong()
                                         .size(13.5),
                                 );
                             } else {
                                 ui.label(
                                     RichText::new("✖ Não instalado")
-                                        .color(COLOR_MUTED)
+                                        .color(pal.text_muted)
                                         .size(13.5),
                                 );
                             }
@@ -314,7 +352,7 @@ pub fn render_options(
                             } else if ui
                                 .button(
                                     RichText::new("➖ Remover do Menu de Contexto")
-                                        .color(COLOR_ERROR)
+                                        .color(pal.error)
                                         .size(13.0),
                                 )
                                 .clicked()
@@ -387,14 +425,14 @@ pub fn render_options(
                             if in_windows {
                                 ui.label(
                                     RichText::new("✔ Instalado")
-                                        .color(COLOR_SUCCESS)
+                                        .color(pal.success)
                                         .strong()
                                         .size(13.5),
                                 );
                             } else {
                                 ui.label(
                                     RichText::new("✖ Não copiado")
-                                        .color(COLOR_MUTED)
+                                        .color(pal.text_muted)
                                         .size(13.5),
                                 );
                             }
@@ -452,7 +490,7 @@ pub fn render_options(
                             ui.label(
                                 RichText::new(msg)
                                     .size(12.5)
-                                    .color(if ok { COLOR_SUCCESS } else { COLOR_ERROR }),
+                                    .color(if ok { pal.success } else { pal.error }),
                             );
                         }
                     });
@@ -466,7 +504,7 @@ pub fn render_options(
                         )
                         .italics()
                         .size(13.0)
-                        .color(COLOR_MUTED),
+                        .color(pal.text_muted),
                     );
                 }
 
@@ -477,8 +515,8 @@ pub fn render_options(
                 col_right.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
 
                 egui::Frame::NONE
-                    .fill(Color32::from_rgb(24, 33, 47))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                    .fill(pal.bg_card)
+                    .stroke(Stroke::new(1.0_f32, pal.border))
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(egui::Margin::same(14))
                     .show(col_right, |ui| {
@@ -487,12 +525,12 @@ pub fn render_options(
                                 RichText::new("⚡ CopyFile")
                                     .strong()
                                     .size(20.0)
-                                    .color(COLOR_ACCENT),
+                                    .color(pal.accent),
                             );
                             ui.label(
                                 RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                                     .small()
-                                    .color(COLOR_MUTED),
+                                    .color(pal.text_muted),
                             );
 
                             ui.with_layout(
@@ -520,7 +558,7 @@ pub fn render_options(
                                 "Ferramenta profissional para backup e cópia ultrarrápida com pipeline duplo-buffer, verificação xxHash3 e preservação de metadados.",
                             )
                             .size(13.0)
-                            .color(Color32::from_rgb(203, 213, 225)),
+                            .color(pal.text_secondary),
                         );
 
                         ui.add_space(10.0);
@@ -535,8 +573,8 @@ pub fn render_options(
                         );
                         ui.add_space(4.0);
                         egui::Frame::NONE
-                            .fill(Color32::from_rgb(30, 41, 59))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
+                            .fill(pal.bg_card_inner)
+                            .stroke(Stroke::new(1.0_f32, pal.border_strong))
                             .corner_radius(CornerRadius::same(6))
                             .inner_margin(egui::Margin::symmetric(10, 8))
                             .show(ui, |ui| {
@@ -558,12 +596,12 @@ pub fn render_options(
                                             RichText::new(format!("v{}", info.version))
                                                 .monospace()
                                                 .strong()
-                                                .color(COLOR_SUCCESS),
+                                                .color(pal.success),
                                         );
                                         ui.label(
                                             RichText::new("(Nova versão!)")
                                                 .small()
-                                                .color(COLOR_SUCCESS),
+                                                .color(pal.success),
                                         );
                                     });
                                     if !info.release_notes.is_empty() {
@@ -572,7 +610,7 @@ pub fn render_options(
                                             RichText::new(&info.release_notes)
                                                 .small()
                                                 .italics()
-                                                .color(Color32::from_rgb(148, 163, 184)),
+                                                .color(pal.text_muted),
                                         );
                                     }
                                 } else {
@@ -581,7 +619,7 @@ pub fn render_options(
                                         ui.label(
                                             RichText::new("Versão mais recente instalada.")
                                                 .size(13.0)
-                                                .color(COLOR_SUCCESS),
+                                                .color(pal.success),
                                         );
                                     });
                                 }
@@ -624,7 +662,7 @@ pub fn render_options(
                                             ui.label(
                                                 RichText::new("Verificando GitHub...")
                                                     .size(13.0)
-                                                    .color(COLOR_ACCENT),
+                                                    .color(pal.accent),
                                             );
                                         });
                                     }
@@ -641,7 +679,7 @@ pub fn render_options(
                                     crate::core::UpdateStatus::Success(msg) => {
                                         ui.label(
                                             RichText::new(msg)
-                                                .color(COLOR_SUCCESS)
+                                                .color(pal.success)
                                                 .strong()
                                                 .size(13.0),
                                         );
@@ -649,7 +687,7 @@ pub fn render_options(
                                     crate::core::UpdateStatus::Error(err) => {
                                         ui.label(
                                             RichText::new(format!("Erro: {err}"))
-                                                .color(COLOR_ERROR)
+                                                .color(pal.error)
                                                 .size(12.5),
                                         );
                                         ui.add_space(4.0);
@@ -685,8 +723,8 @@ pub fn render_options(
                         ui.label(RichText::new("👨‍💻 Desenvolvido por:").strong().size(14.5));
                         ui.add_space(2.0);
                         egui::Frame::NONE
-                            .fill(Color32::from_rgb(30, 41, 59))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(71, 85, 105)))
+                            .fill(pal.bg_card_inner)
+                            .stroke(Stroke::new(1.0_f32, pal.border_strong))
                             .corner_radius(CornerRadius::same(6))
                             .inner_margin(egui::Margin::symmetric(10, 8))
                             .show(ui, |ui| {
@@ -696,14 +734,14 @@ pub fn render_options(
                                         RichText::new("👤 Leandro")
                                             .strong()
                                             .size(14.0)
-                                            .color(Color32::WHITE),
+                                            .color(pal.text_primary),
                                     );
-                                    ui.label(RichText::new("+").size(13.5).color(COLOR_MUTED));
+                                    ui.label(RichText::new("+").size(13.5).color(pal.text_muted));
                                     ui.label(
                                         RichText::new("✨ Gemini (Google DeepMind)")
                                             .strong()
                                             .size(14.0)
-                                            .color(COLOR_WARNING),
+                                            .color(pal.warning),
                                     );
                                 });
                             });
@@ -749,12 +787,12 @@ pub fn render_options(
                                     RichText::new(title)
                                         .strong()
                                         .size(12.5)
-                                        .color(COLOR_ACCENT),
+                                        .color(pal.accent),
                                 );
                                 ui.label(
                                     RichText::new(format!("— {desc}"))
                                         .size(12.5)
-                                        .color(Color32::from_rgb(148, 163, 184)),
+                                        .color(pal.text_muted),
                                 );
                             });
                             ui.add_space(2.0);
@@ -768,7 +806,7 @@ pub fn render_options(
                         let cpus = std::thread::available_parallelism()
                             .map_or(4, std::num::NonZeroUsize::get);
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("🖥 Sistema:").small().color(COLOR_MUTED));
+                            ui.label(RichText::new("🖥 Sistema:").small().color(pal.text_muted));
                             ui.label(
                                 RichText::new(format!(
                                     "Windows x86_64 ({cpus} núcleos lógicos)"
@@ -778,12 +816,12 @@ pub fn render_options(
                             );
                         });
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("💾 Build:").small().color(COLOR_MUTED));
+                            ui.label(RichText::new("💾 Build:").small().color(pal.text_muted));
                             ui.label(
                                 RichText::new("Rust Release • LTO Fat • Glow GPU")
                                     .small()
                                     .strong()
-                                    .color(COLOR_SUCCESS),
+                                    .color(pal.success),
                             );
                         });
                     });

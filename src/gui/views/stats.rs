@@ -1,7 +1,7 @@
-use crate::gui::theme::{COLOR_ACCENT, COLOR_ERROR, COLOR_SUCCESS, COLOR_WARNING};
+use crate::gui::theme::AppPalette;
 use crate::gui::views::header::{format_bytes, format_duration};
 use crate::gui::views::speed_graph::{render_speed_graph, SpeedHistory};
-use eframe::egui::{self, Color32, CornerRadius, RichText, ScrollArea, Stroke, Ui};
+use eframe::egui::{self, CornerRadius, RichText, ScrollArea, Stroke, Ui};
 use std::time::Duration;
 
 /// Renders the real-time statistics and summary panel with interactive speed graph.
@@ -21,6 +21,8 @@ pub fn render_stats(
     eta: Option<Duration>,
     speed_history: &SpeedHistory,
 ) {
+    let pal = AppPalette::from_ui(ui);
+
     ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -47,8 +49,8 @@ pub fn render_stats(
                 // Column 1: Performance Metrics
                 columns[0].style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                 egui::Frame::NONE
-                    .fill(Color32::from_rgb(24, 33, 47))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                    .fill(pal.bg_card)
+                    .stroke(Stroke::new(1.0_f32, pal.border))
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(egui::Margin::same(14))
                     .show(&mut columns[0], |ui| {
@@ -69,7 +71,7 @@ pub fn render_stats(
                                     format_bytes(current_speed_bps as u64)
                                 ))
                                 .strong()
-                                .color(COLOR_WARNING),
+                                .color(pal.warning),
                             );
                         });
 
@@ -81,7 +83,7 @@ pub fn render_stats(
                                     format_bytes(average_speed_bps as u64)
                                 ))
                                 .strong()
-                                .color(COLOR_ACCENT),
+                                .color(pal.accent),
                             );
                         });
 
@@ -93,7 +95,7 @@ pub fn render_stats(
                                     format_bytes(speed_history.peak() as u64)
                                 ))
                                 .strong()
-                                .color(COLOR_SUCCESS),
+                                .color(pal.success),
                             );
                         });
 
@@ -105,15 +107,15 @@ pub fn render_stats(
                         ui.horizontal_wrapped(|ui| {
                             ui.label("Tempo Restante (ETA):");
                             let eta_str = eta.map_or_else(|| "-".to_string(), format_duration);
-                            ui.label(RichText::new(eta_str).strong().color(COLOR_WARNING));
+                            ui.label(RichText::new(eta_str).strong().color(pal.warning));
                         });
                     });
 
                 // Column 2: Volume & File Counts
                 columns[1].style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                 egui::Frame::NONE
-                    .fill(Color32::from_rgb(24, 33, 47))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)))
+                    .fill(pal.bg_card)
+                    .stroke(Stroke::new(1.0_f32, pal.border))
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(egui::Margin::same(14))
                     .show(&mut columns[1], |ui| {
@@ -136,7 +138,7 @@ pub fn render_stats(
                             ui.label(
                                 RichText::new(copied_files.to_string())
                                     .strong()
-                                    .color(COLOR_SUCCESS),
+                                    .color(pal.success),
                             );
                         });
 
@@ -145,7 +147,7 @@ pub fn render_stats(
                             ui.label(
                                 RichText::new(skipped_files.to_string())
                                     .strong()
-                                    .color(COLOR_WARNING),
+                                    .color(pal.warning),
                             );
                         });
 
@@ -154,7 +156,7 @@ pub fn render_stats(
                             ui.label(
                                 RichText::new(error_files.to_string())
                                     .strong()
-                                    .color(COLOR_ERROR),
+                                    .color(pal.error),
                             );
                         });
 
@@ -169,7 +171,7 @@ pub fn render_stats(
                                     format_bytes(remaining_bytes)
                                 ))
                                 .strong()
-                                .color(Color32::from_rgb(226, 232, 240)),
+                                .color(pal.text_primary),
                             );
                         });
                     });

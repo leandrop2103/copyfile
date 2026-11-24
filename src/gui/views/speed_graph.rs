@@ -1,8 +1,8 @@
 //! Real-time interactive Speed Graph view with smooth gradient fill and dynamic metrics.
 
-use crate::gui::theme::{COLOR_ACCENT, COLOR_MUTED, COLOR_SUCCESS};
+use crate::gui::theme::AppPalette;
 use crate::gui::views::header::format_bytes;
-use eframe::egui::{self, Color32, CornerRadius, Pos2, Rect, Shape, Stroke, Ui, Vec2};
+use eframe::egui::{self, CornerRadius, Pos2, Rect, Shape, Stroke, Ui, Vec2};
 use std::collections::VecDeque;
 
 /// Historical speed sample history tracker.
@@ -60,6 +60,7 @@ pub fn render_speed_graph(
     avg_speed: f64,
     height: f32,
 ) {
+    let pal = AppPalette::from_ui(ui);
     let available_width = ui.available_width().max(200.0);
     let desired_size = Vec2::new(available_width, height);
     let (rect, _response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
@@ -67,15 +68,11 @@ pub fn render_speed_graph(
     let painter = ui.painter_at(rect);
 
     // 1. Draw Background Frame
-    painter.rect_filled(
-        rect,
-        CornerRadius::same(8),
-        Color32::from_rgb(15, 23, 42), // Slate 900
-    );
+    painter.rect_filled(rect, CornerRadius::same(8), pal.graph_bg);
     painter.rect_stroke(
         rect,
         CornerRadius::same(8),
-        Stroke::new(1.0_f32, Color32::from_rgb(51, 65, 85)),
+        Stroke::new(1.0_f32, pal.border),
         egui::StrokeKind::Inside,
     );
 
@@ -86,7 +83,7 @@ pub fn render_speed_graph(
             egui::Align2::CENTER_CENTER,
             "Aguardando transferência para traçar o gráfico de taxa...",
             egui::FontId::proportional(13.5),
-            COLOR_MUTED,
+            pal.text_muted,
         );
         return;
     }
@@ -127,7 +124,7 @@ pub fn render_speed_graph(
         // Grid line
         painter.line_segment(
             [Pos2::new(plot_rect.min.x, y), Pos2::new(plot_rect.max.x, y)],
-            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(51, 65, 85, 90)),
+            Stroke::new(1.0_f32, pal.graph_grid),
         );
 
         // Y-axis Label
@@ -137,7 +134,7 @@ pub fn render_speed_graph(
             egui::Align2::RIGHT_CENTER,
             label,
             egui::FontId::proportional(11.5),
-            Color32::from_rgb(148, 163, 184),
+            pal.text_muted,
         );
     }
 
@@ -156,8 +153,8 @@ pub fn render_speed_graph(
     // 4. Draw Gradient / Filled Area under curve
     if points.len() >= 2 {
         let mut fill_mesh = egui::Mesh::default();
-        let fill_color_top = Color32::from_rgba_unmultiplied(16, 185, 129, 60); // Emerald translucent
-        let fill_color_bottom = Color32::from_rgba_unmultiplied(16, 185, 129, 5);
+        let fill_color_top = pal.graph_fill_top;
+        let fill_color_bottom = pal.graph_fill_bottom;
 
         for i in 0..(points.len() - 1) {
             let p1 = points[i];
@@ -197,7 +194,7 @@ pub fn render_speed_graph(
         for i in 0..(points.len() - 1) {
             painter.line_segment(
                 [points[i], points[i + 1]],
-                Stroke::new(2.2_f32, Color32::from_rgb(52, 211, 153)), // Bright Emerald
+                Stroke::new(2.2_f32, pal.graph_line),
             );
         }
     }
@@ -211,14 +208,14 @@ pub fn render_speed_graph(
                 Pos2::new(plot_rect.min.x, avg_y),
                 Pos2::new(plot_rect.max.x, avg_y),
             ],
-            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(56, 189, 248, 160)), // Blue accent line
+            Stroke::new(1.0_f32, pal.graph_avg_line),
         );
         painter.text(
             Pos2::new(plot_rect.max.x - 4.0, avg_y - 8.0),
             egui::Align2::RIGHT_BOTTOM,
             format!("Média: {}/s", format_bytes(avg_speed as u64)),
             egui::FontId::proportional(11.0),
-            COLOR_ACCENT,
+            pal.accent,
         );
     }
 
@@ -231,7 +228,7 @@ pub fn render_speed_graph(
         egui::Align2::LEFT_TOP,
         format!("Taxa Atual: {cur_str}"),
         egui::FontId::proportional(13.5),
-        COLOR_SUCCESS,
+        pal.success,
     );
 
     painter.text(
@@ -239,6 +236,6 @@ pub fn render_speed_graph(
         egui::Align2::RIGHT_TOP,
         format!("Pico Máximo: {peak_str}"),
         egui::FontId::proportional(12.5),
-        Color32::from_rgb(148, 163, 184),
+        pal.text_muted,
     );
 }
